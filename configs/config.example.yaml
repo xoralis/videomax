@@ -1,0 +1,27 @@
+# videoMax 配置文件模板
+# 复制此文件为 config.yaml 并填入实际值
+
+server:
+  port: 8080
+
+mysql:
+  dsn: "root:password@tcp(127.0.0.1:3306)/videomax?charset=utf8mb4&parseTime=True&loc=Local"
+
+kafka:
+  brokers:
+    - "localhost:9092"
+  topic: "video-tasks"
+  group_id: "videomax-workers"
+
+llm:
+  api_key: "sk-xxxx"
+  model: "gpt-4o"
+  base_url: "https://api.openai.com/v1"
+
+video:
+  provider: "bytedance"
+  api_key: "xxxx"
+  base_url: "https://api.example.com"
+
+storage:
+  upload_dir: "./uploads"
