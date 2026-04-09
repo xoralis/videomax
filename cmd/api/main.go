@@ -80,7 +80,7 @@ func main() {
 	logger.Log.Info("MAS 多智能体 Orchestrator 组装完成 (Story → Character → Storyboard → Visual ↔ Critic)")
 
 	// ==================== 8. 初始化视频服务提供商 (工厂模式) ====================
-	videoProvider, err := video.NewVideoProvider(cfg.Video.Provider, cfg.Video.APIKey, cfg.Video.BaseURL)
+	videoProvider, err := video.NewVideoProvider(cfg.Video.Provider, cfg.Video.APIKey, cfg.Video.BaseURL, cfg.Video.Model)
 	if err != nil {
 		logger.Log.Fatalw("视频服务提供商初始化失败", "error", err)
 	}

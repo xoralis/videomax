@@ -46,6 +46,7 @@ type VideoConfig struct {
 	Provider string `yaml:"provider"` // 当前使用的服务商标识（如 bytedance, kling）
 	APIKey   string `yaml:"api_key"`
 	BaseURL  string `yaml:"base_url"`
+	Model    string `yaml:"model"`    // 大模型 ID，如 doubao-seedance-2-0-260128
 }
 
 // StorageConfig 本地文件存储路径配置

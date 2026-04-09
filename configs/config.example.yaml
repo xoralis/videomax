@@ -20,8 +20,9 @@ llm:
 
 video:
   provider: "bytedance"
-  api_key: "xxxx"
-  base_url: "https://api.example.com"
+  api_key: "your-ark-api-key-here"        # 火山引擎 ARK API Key
+  base_url: ""                            # 留空则使用默认: https://ark.cn-beijing.volces.com/api/v3
+  model: "doubao-seedance-2-0-260128"     # Seedance 模型 ID，可按需切换
 
 storage:
   upload_dir: "./uploads"
