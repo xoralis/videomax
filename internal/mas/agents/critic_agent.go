@@ -14,10 +14,10 @@ import (
 // 采用 Reflection (反思) 范式运行
 // 不生产原创内容，专门审查前面 Agent 产出的最终提示词
 type CriticAgent struct {
-	llm *llmclient.Client
+	llm llmclient.LLMClient
 }
 
-func NewCriticAgent(llm *llmclient.Client) *CriticAgent {
+func NewCriticAgent(llm llmclient.LLMClient) *CriticAgent {
 	return &CriticAgent{llm: llm}
 }
 

@@ -13,10 +13,10 @@ import (
 // 使用 CoT (Chain of Thought) 思考链范式，强制大模型分步骤推理出完整的剧情大纲
 // 它只负责「故事」的内容创作，不涉及画面、运镜等视觉元素
 type StoryAgent struct {
-	llm *llmclient.Client
+	llm llmclient.LLMClient
 }
 
-func NewStoryAgent(llm *llmclient.Client) *StoryAgent {
+func NewStoryAgent(llm llmclient.LLMClient) *StoryAgent {
 	return &StoryAgent{llm: llm}
 }
 

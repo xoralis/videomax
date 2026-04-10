@@ -12,10 +12,10 @@ import (
 // StoryboardAgent 分镜规划智能体
 // 充当「导演」角色，将故事大纲和角色设定拆解为一系列具体的镜头（Shot）
 type StoryboardAgent struct {
-	llm *llmclient.Client
+	llm llmclient.LLMClient
 }
 
-func NewStoryboardAgent(llm *llmclient.Client) *StoryboardAgent {
+func NewStoryboardAgent(llm llmclient.LLMClient) *StoryboardAgent {
 	return &StoryboardAgent{llm: llm}
 }
 

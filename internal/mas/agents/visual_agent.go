@@ -16,12 +16,12 @@ import (
 // VisualAgent 画面提示词智能体
 // 采用 ReAct (Reasoning and Acting) 范式运行
 type VisualAgent struct {
-	llm      *llmclient.Client
+	llm      llmclient.LLMClient
 	aiTools  []tools.AITool
 	maxLoops int
 }
 
-func NewVisualAgent(llm *llmclient.Client, aiTools []tools.AITool) *VisualAgent {
+func NewVisualAgent(llm llmclient.LLMClient, aiTools []tools.AITool) *VisualAgent {
 	return &VisualAgent{llm: llm, aiTools: aiTools, maxLoops: 5}
 }
 

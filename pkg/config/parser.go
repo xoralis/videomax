@@ -34,11 +34,12 @@ type KafkaConfig struct {
 	GroupID string   `yaml:"group_id"` // 消费者组 ID
 }
 
-// LLMConfig 大模型 API 配置（兼容 OpenAI 格式的接口）
+// LLMConfig 大模型 API 配置
 type LLMConfig struct {
-	APIKey  string `yaml:"api_key"`
-	Model   string `yaml:"model"`
-	BaseURL string `yaml:"base_url"`
+	Provider string `yaml:"provider"` // 供应商标识: "openai" 或 "doubao"（留空默认 openai）
+	APIKey   string `yaml:"api_key"`
+	Model    string `yaml:"model"`
+	BaseURL  string `yaml:"base_url"`
 }
 
 // VideoConfig 视频生成服务商的配置

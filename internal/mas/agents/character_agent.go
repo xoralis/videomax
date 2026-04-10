@@ -13,10 +13,10 @@ import (
 // 利用 GPT-4o 的 Vision 能力深度分析用户上传的参考图片
 // 提取出角色的外貌、服装、气质等恒定文本锚点
 type CharacterAgent struct {
-	llm *llmclient.Client
+	llm llmclient.LLMClient
 }
 
-func NewCharacterAgent(llm *llmclient.Client) *CharacterAgent {
+func NewCharacterAgent(llm llmclient.LLMClient) *CharacterAgent {
 	return &CharacterAgent{llm: llm}
 }
 

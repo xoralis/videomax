@@ -51,9 +51,9 @@ func main() {
 	// ==================== 4. 初始化 Repository 层 ====================
 	taskRepo := repository.NewMySQLTaskRepo(db)
 
-	// ==================== 5. 初始化 LLM 客户端 ====================
-	llm := llmclient.NewClient(cfg.LLM.APIKey, cfg.LLM.BaseURL, cfg.LLM.Model)
-	logger.Log.Infow("LLM 客户端初始化完成", "model", cfg.LLM.Model)
+	// ==================== 5. 初始化 LLM 客户端（工厂模式：支持 OpenAI / 豆包） ====================
+	llm := llmclient.NewLLMClient(cfg.LLM.Provider, cfg.LLM.APIKey, cfg.LLM.BaseURL, cfg.LLM.Model)
+	logger.Log.Infow("LLM 客户端初始化完成", "provider", llm.Provider(), "model", cfg.LLM.Model)
 
 	// ==================== 6. 初始化工具箱 (供 ReAct Agent 使用) ====================
 	aiTools := []tools.AITool{

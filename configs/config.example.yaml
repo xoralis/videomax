@@ -14,9 +14,10 @@ kafka:
   group_id: "videomax-workers"
 
 llm:
-  api_key: "sk-xxxx"
-  model: "gpt-4o"
-  base_url: "https://api.openai.com/v1"
+  provider: "doubao"                        # "openai" 或 "doubao"（留空默认 openai）
+  api_key: "your-ark-api-key"               # 火山引擎 ARK 平台 API Key
+  model: "ep-xxxx-your-endpoint-id"         # 推理接入点 ID（doubao）或模型名（openai: gpt-4o）
+  base_url: ""                              # 留空使用对应供应商的默认地址
 
 video:
   provider: "bytedance"
