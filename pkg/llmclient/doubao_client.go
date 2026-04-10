@@ -3,10 +3,10 @@ package llmclient
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -38,16 +38,13 @@ type doubaoRequest struct {
 }
 
 // doubaoToolDef Responses API 的工具定义格式
+// 注意：Responses API 使用扁平结构，name/description/parameters 直接放在顶层
+// 这与 Chat Completions API 的嵌套 function 包装器不同
 type doubaoToolDef struct {
-	Type     string              `json:"type"`     // "function"
-	Function doubaoFunctionDef   `json:"function"` // 函数定义
-}
-
-// doubaoFunctionDef 函数定义
-type doubaoFunctionDef struct {
-	Name        string      `json:"name"`
-	Description string      `json:"description"`
-	Parameters  interface{} `json:"parameters"` // JSON Schema 格式
+	Type        string      `json:"type"`        // "function"
+	Name        string      `json:"name"`        // 函数名称
+	Description string      `json:"description"` // 函数描述
+	Parameters  interface{} `json:"parameters"` // JSON Schema 格式的参数定义
 }
 
 // doubaoInputMessage Responses API input 数组中的消息元素
@@ -58,15 +55,9 @@ type doubaoInputMessage struct {
 
 // doubaoContentPart 多模态 content 数组中的元素
 type doubaoContentPart struct {
-	Type     string              `json:"type"`                // "input_text", "input_image"
-	Text     string              `json:"text,omitempty"`      // type=input_text 时
-	ImageURL *doubaoImageURLObj  `json:"image_url,omitempty"` // type=input_image 时
-}
-
-// doubaoImageURLObj 图片 URL 对象
-type doubaoImageURLObj struct {
-	URL    string `json:"url"`              // URL 或 base64 data URI
-	Detail string `json:"detail,omitempty"` // "auto", "low", "high"
+	Type   string `json:"type"`              // "input_text", "input_image"
+	Text   string `json:"text,omitempty"`    // type=input_text 时
+	FileID string `json:"file_id,omitempty"` // type=input_image 时，使用 file_id
 }
 
 // doubaoToolCallInput 传入工具调用结果的消息
@@ -229,7 +220,7 @@ func (c *DoubaoClient) Chat(ctx context.Context, req ChatRequest) (*ChatResponse
 
 	// 2. 构建当前用户消息（支持多模态图片）
 	if req.UserMessage != "" || len(req.ImagePaths) > 0 {
-		userContent, err := c.buildMultimodalContent(req.UserMessage, req.ImagePaths)
+		userContent, err := c.buildMultimodalContent(ctx, req.UserMessage, req.ImagePaths)
 		if err != nil {
 			return nil, fmt.Errorf("构建多模态消息失败: %w", err)
 		}
@@ -328,7 +319,7 @@ func (c *DoubaoClient) Chat(ctx context.Context, req ChatRequest) (*ChatResponse
 
 // buildMultimodalContent 构建多模态 content
 // 如果有图片，返回 content parts 数组；否则返回纯文本字符串
-func (c *DoubaoClient) buildMultimodalContent(text string, imagePaths []string) (interface{}, error) {
+func (c *DoubaoClient) buildMultimodalContent(ctx context.Context, text string, imagePaths []string) (interface{}, error) {
 	if len(imagePaths) == 0 {
 		return text, nil
 	}
@@ -344,40 +335,159 @@ func (c *DoubaoClient) buildMultimodalContent(text string, imagePaths []string) 
 		})
 	}
 
-	// 图片部分（Responses API 使用 input_image 类型）
+	// 图片部分（Responses API 使用 input_image 和 file_id）
 	for i, path := range imagePaths {
-		data, err := os.ReadFile(path)
+		fileID, err := c.uploadFile(ctx, path)
 		if err != nil {
-			return nil, fmt.Errorf("读取第 %d 张图片失败 (%s): %w", i+1, path, err)
+			return nil, fmt.Errorf("上传第 %d 张图片失败 (%s): %w", i+1, path, err)
 		}
 
-		mimeType := detectMIME(filepath.Ext(path))
-		b64 := base64.StdEncoding.EncodeToString(data)
-		dataURI := fmt.Sprintf("data:%s;base64,%s", mimeType, b64)
-
 		parts = append(parts, doubaoContentPart{
-			Type: "input_image",
-			ImageURL: &doubaoImageURLObj{
-				URL:    dataURI,
-				Detail: "auto",
-			},
+			Type:   "input_image",
+			FileID: fileID,
 		})
 	}
 
 	return parts, nil
 }
 
+// doubaoFileResponse 文件上传响应
+type doubaoFileResponse struct {
+	ID       string `json:"id"`
+	Object   string `json:"object"`
+	Filename string `json:"filename"`
+	Status   string `json:"status"`
+}
+
+// uploadFile 上传本地图片到火山引擎获取 file_id
+func (c *DoubaoClient) uploadFile(ctx context.Context, path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("无法打开文件: %w", err)
+	}
+	defer file.Close()
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	// 设置 purpose = user_data
+	_ = writer.WriteField("purpose", "user_data")
+
+	// 添加文件部分
+	part, err := writer.CreateFormFile("file", filepath.Base(path))
+	if err != nil {
+		return "", fmt.Errorf("创建 multipart 表单失败: %w", err)
+	}
+	if _, err := io.Copy(part, file); err != nil {
+		return "", fmt.Errorf("复制文件数据失败: %w", err)
+	}
+	writer.Close()
+
+	// 构造请求
+	reqURL := c.baseURL + "/files"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, body)
+	if err != nil {
+		return "", fmt.Errorf("创建上传请求失败: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	// 执行请求
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("上传请求发送失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("读取上传响应失败: %w", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("API 错误响应 %d: %s", resp.StatusCode, string(respBytes))
+	}
+
+	var fileResp doubaoFileResponse
+	if err := json.Unmarshal(respBytes, &fileResp); err != nil {
+		return "", fmt.Errorf("解析上传响应 JSON 失败: %w", err)
+	}
+
+	logger.Log.Debugw("豆包图片上传请求成功", "filename", filepath.Base(path), "file_id", fileResp.ID, "status", fileResp.Status)
+
+	// 如果状态是 processing，需要轮询等待它就绪
+	if fileResp.Status == "processing" {
+		err = c.waitForFileReady(ctx, fileResp.ID)
+		if err != nil {
+			return "", fmt.Errorf("等待图片处理完成失败: %w", err)
+		}
+	}
+
+	return fileResp.ID, nil
+}
+
+// waitForFileReady 轮询查询文件状态直到不是 processing
+func (c *DoubaoClient) waitForFileReady(ctx context.Context, fileID string) error {
+	reqURL := fmt.Sprintf("%s/files/%s", c.baseURL, fileID)
+	
+	// 最多轮询 15 次，每次间隔 1 秒
+	for i := 0; i < 15; i++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return err
+		}
+		
+		respBytes, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return err
+		}
+
+		if resp.StatusCode >= 400 {
+			return fmt.Errorf("查询文件状态失败 %d: %s", resp.StatusCode, string(respBytes))
+		}
+
+		var fileResp doubaoFileResponse
+		if err := json.Unmarshal(respBytes, &fileResp); err != nil {
+			return err
+		}
+
+		if fileResp.Status != "processing" {
+			logger.Log.Debugw("豆包图片处理完成", "file_id", fileID, "final_status", fileResp.Status)
+			return nil
+		}
+
+		logger.Log.Debugw("豆包图片处理中，等待...", "file_id", fileID, "attempt", i+1)
+		
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(1 * time.Second):
+			// 继续下一次循环
+		}
+	}
+
+	return fmt.Errorf("等待文件处理超时")
+}
+
 // buildTools 将 AITool 列表转换为 Responses API 的工具定义格式
+// Responses API 工具格式（扁平结构）：
+//
+//	{"type": "function", "name": "xxx", "description": "xxx", "parameters": {...}}
 func (c *DoubaoClient) buildTools(aiTools []tools.AITool) []doubaoToolDef {
 	defs := make([]doubaoToolDef, 0, len(aiTools))
 	for _, t := range aiTools {
 		defs = append(defs, doubaoToolDef{
-			Type: "function",
-			Function: doubaoFunctionDef{
-				Name:        t.Name(),
-				Description: t.Description(),
-				Parameters:  t.ParametersSchema(),
-			},
+			Type:        "function",
+			Name:        t.Name(),
+			Description: t.Description(),
+			Parameters:  t.ParametersSchema(),
 		})
 	}
 	return defs

@@ -19,17 +19,18 @@ import (
 // Seedance API 的接口地址（火山引擎）
 const (
 	seedanceBaseURL      = "https://ark.cn-beijing.volces.com/api/v3"
-	seedanceGeneratePath = "/contents/generations/tasks"         // 提交生成任务
-	seedanceQueryPath    = "/contents/generations/tasks/%s"      // 查询任务状态，%s 填 task_id
+	seedanceGeneratePath = "/contents/generations/tasks"    // 提交生成任务
+	seedanceQueryPath    = "/contents/generations/tasks/%s" // 查询任务状态，%s 填 task_id
 )
 
 // ---- 提交任务：请求与响应结构体 ----
 
 // seedanceContent 请求体中 content 数组的单个元素
 type seedanceContent struct {
-	Type     string              `json:"type"`                // "text" 或 "image_url"
-	Text     string              `json:"text,omitempty"`      // type=text 时的内容
-	ImageURL *seedanceImageURL   `json:"image_url,omitempty"` // type=image_url 时的内容
+	Type     string            `json:"type"`                // "text" 或 "image_url"
+	Text     string            `json:"text,omitempty"`      // type=text 时的内容
+	ImageURL *seedanceImageURL `json:"image_url,omitempty"` // type=image_url 时的内容
+	Role     string            `json:"role,omitempty"`      // "reference_image"/"reference_video"/"first_frame"...
 }
 
 // seedanceImageURL content 中 image_url 对象
@@ -58,9 +59,9 @@ type seedanceGenerateResp struct {
 
 // seedanceQueryResp 查询任务状态的响应体
 type seedanceQueryResp struct {
-	ID      string `json:"id"`
-	Status  string `json:"status"` // queued / running / succeeded / failed / cancelled
-	Error   *struct {
+	ID     string `json:"id"`
+	Status string `json:"status"` // queued / running / succeeded / failed / cancelled
+	Error  *struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
@@ -134,6 +135,7 @@ func (c *ByteDanceClient) GenerateVideo(ctx context.Context, req GenerateRequest
 			ImageURL: &seedanceImageURL{
 				URL: b64URI,
 			},
+			Role: "reference_image",
 		})
 	}
 

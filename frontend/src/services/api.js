@@ -9,7 +9,7 @@
 export async function createVideoTask(idea, images, aspectRatio) {
   const formData = new FormData();
   formData.append('idea', idea);
-  formData.append('aspectRatio', aspectRatio);
+  formData.append('aspect_ratio', aspectRatio);
   
   images.forEach((img) => {
     formData.append('images', img);
