@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/sashabaranov/go-openai"
-
 	"video-max/internal/mas/protocol"
 	"video-max/internal/tools"
 	"video-max/pkg/llmclient"
@@ -66,7 +64,8 @@ func (a *VisualAgent) Process(ctx context.Context, masCtx *protocol.MASContext) 
 		userMsg += fmt.Sprintf("\n\n⚠️ 质检员反馈（请务必根据以下意见修改）：\n%s", masCtx.ReviewFeedback)
 	}
 
-	var history []openai.ChatCompletionMessage
+	// 使用自定义的 Message 类型（不依赖 go-openai）
+	var history []llmclient.Message
 
 	for loop := 0; loop < a.maxLoops; loop++ {
 		logger.Log.Debugw("VisualAgent: ReAct 循环迭代", "task_id", masCtx.TaskID, "loop", loop+1)
@@ -89,8 +88,8 @@ func (a *VisualAgent) Process(ctx context.Context, masCtx *protocol.MASContext) 
 		}
 
 		// 大模型请求调用工具 (Action)
-		history = append(history, openai.ChatCompletionMessage{
-			Role:      openai.ChatMessageRoleAssistant,
+		history = append(history, llmclient.Message{
+			Role:      "assistant",
 			Content:   resp.Content,
 			ToolCalls: resp.ToolCalls,
 		})
@@ -104,8 +103,8 @@ func (a *VisualAgent) Process(ctx context.Context, masCtx *protocol.MASContext) 
 			}
 
 			// 工具返回结果反馈给大模型 (Observation)
-			history = append(history, openai.ChatCompletionMessage{
-				Role:       openai.ChatMessageRoleTool,
+			history = append(history, llmclient.Message{
+				Role:       "tool",
 				Content:    toolResult,
 				ToolCallID: tc.ID,
 			})

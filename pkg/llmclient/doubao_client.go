@@ -1,71 +1,173 @@
 package llmclient
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"time"
 
-	"github.com/sashabaranov/go-openai"
-
+	"video-max/internal/tools"
 	"video-max/pkg/logger"
 )
 
-// 字节豆包（Doubao）火山引擎方舟（ARK）平台的默认配置
+// 字节豆包（Doubao）火山引擎方舟（ARK）平台配置
+// 使用 Responses API：https://www.volcengine.com/docs/82379/1585135
 const (
 	// doubaoDefaultBaseURL ARK 平台 API 默认地址
-	// 所有豆包大模型的 Chat Completions 接口均通过此域名访问
 	doubaoDefaultBaseURL = "https://ark.cn-beijing.volces.com/api/v3"
-
-	// doubaoDefaultModel 豆包默认模型接入点
-	// 用户需要在火山引擎控制台创建「推理接入点」后获取实际的 endpoint ID
-	// 格式通常为 ep-xxxxxxxxxxxx-xxxxx
-	doubaoDefaultModel = "ep-xxxxx-your-endpoint-id"
+	// doubaoResponsesPath Responses API 端点路径
+	doubaoResponsesPath = "/responses"
 )
 
+// ==================== Responses API 请求结构体 ====================
+
+// doubaoRequest Responses API 请求体
+type doubaoRequest struct {
+	Model        string           `json:"model"`                   // 模型 ID 或推理接入点 ID (ep-xxx)
+	Input        json.RawMessage  `json:"input"`                   // 输入内容：string 或 message 数组
+	Instructions string           `json:"instructions,omitempty"`  // 系统指令（替代 messages 中的 system role）
+	Tools        []doubaoToolDef  `json:"tools,omitempty"`         // Function Calling 工具定义
+	PrevRespID   string           `json:"previous_response_id,omitempty"` // 上一次响应 ID（有状态对话）
+	Stream       bool             `json:"stream"`                  // 是否流式输出，默认 false
+}
+
+// doubaoToolDef Responses API 的工具定义格式
+type doubaoToolDef struct {
+	Type     string              `json:"type"`     // "function"
+	Function doubaoFunctionDef   `json:"function"` // 函数定义
+}
+
+// doubaoFunctionDef 函数定义
+type doubaoFunctionDef struct {
+	Name        string      `json:"name"`
+	Description string      `json:"description"`
+	Parameters  interface{} `json:"parameters"` // JSON Schema 格式
+}
+
+// doubaoInputMessage Responses API input 数组中的消息元素
+type doubaoInputMessage struct {
+	Role    string      `json:"role"`    // "user", "assistant", "tool"
+	Content interface{} `json:"content"` // string 或 content 数组
+}
+
+// doubaoContentPart 多模态 content 数组中的元素
+type doubaoContentPart struct {
+	Type     string              `json:"type"`                // "input_text", "input_image"
+	Text     string              `json:"text,omitempty"`      // type=input_text 时
+	ImageURL *doubaoImageURLObj  `json:"image_url,omitempty"` // type=input_image 时
+}
+
+// doubaoImageURLObj 图片 URL 对象
+type doubaoImageURLObj struct {
+	URL    string `json:"url"`              // URL 或 base64 data URI
+	Detail string `json:"detail,omitempty"` // "auto", "low", "high"
+}
+
+// doubaoToolCallInput 传入工具调用结果的消息
+type doubaoToolCallInput struct {
+	Type       string `json:"type"`        // "function_call_output"
+	CallID     string `json:"call_id"`     // 对应的 function_call 的 call_id
+	Output     string `json:"output"`      // 工具执行结果
+}
+
+// ==================== Responses API 响应结构体 ====================
+
+// doubaoResponse Responses API 响应体
+type doubaoResponse struct {
+	ID     string             `json:"id"`     // 响应唯一标识（可用于 previous_response_id）
+	Object string             `json:"object"` // 固定 "response"
+	Output []doubaoOutputItem `json:"output"` // 输出段列表
+	Usage  *doubaoUsage       `json:"usage"`  // Token 消耗
+	Error  *doubaoError       `json:"error"`  // 错误信息
+}
+
+// doubaoOutputItem 输出段，type 决定具体内容
+type doubaoOutputItem struct {
+	Type string `json:"type"` // "message", "function_call", "reasoning"
+
+	// type="message" 时的字段
+	Role    string               `json:"role,omitempty"`
+	Content []doubaoOutputContent `json:"content,omitempty"`
+
+	// type="function_call" 时的字段
+	Name      string `json:"name,omitempty"`      // 函数名称
+	Arguments string `json:"arguments,omitempty"` // JSON 参数
+	CallID    string `json:"call_id,omitempty"`   // 调用 ID
+
+	// type="reasoning" 时的字段
+	Summary []doubaoSummaryItem `json:"summary,omitempty"` // 推理过程摘要
+}
+
+// doubaoOutputContent 输出段中的 content 元素
+type doubaoOutputContent struct {
+	Type string `json:"type"` // "output_text"
+	Text string `json:"text"` // 文本内容
+}
+
+// doubaoSummaryItem 推理摘要
+type doubaoSummaryItem struct {
+	Type string `json:"type"` // "summary_text"
+	Text string `json:"text"`
+}
+
+// doubaoUsage Token 消耗
+type doubaoUsage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+	TotalTokens  int `json:"total_tokens"`
+}
+
+// doubaoError 错误信息
+type doubaoError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// ==================== DoubaoClient 实现 ====================
+
 // DoubaoClient 字节跳动豆包大模型的 LLMClient 实现
-// 基于火山引擎方舟平台（Volcengine ARK），API 格式与 OpenAI 高度兼容
-// 但有以下差异点需要注意：
-//   - BaseURL 固定为 https://ark.cn-beijing.volces.com/api/v3
-//   - Model 字段填的是「推理接入点 ID」(ep-xxx)，不是模型名称
-//   - API Key 在火山引擎控制台的「API 密钥管理」中获取
-//   - 支持 Vision（图文混输）和 Function Calling，但部分模型可能不支持
+// 使用 Responses API（非 Chat Completions API）
+// 通过原生 net/http 发送请求，不依赖任何第三方 SDK
+//
+// Responses API 与 Chat Completions API 的核心区别：
+//   - 端点: POST /v3/responses（而非 /v3/chat/completions）
+//   - 系统指令: 使用独立的 instructions 字段（而非 messages 中的 system role）
+//   - 输出格式: output 数组包含 message / function_call / reasoning 多种段（而非 choices）
+//   - 有状态对话: 支持 previous_response_id 链式引用（无需手动传完整历史）
 type DoubaoClient struct {
-	client *openai.Client
-	model  string // 推理接入点 ID，如 ep-20241024100000-xxxxx
+	apiKey     string
+	baseURL    string
+	model      string // 模型 ID 或推理接入点 ID (ep-xxx)
+	httpClient *http.Client
 }
 
 // NewDoubaoClient 创建豆包大模型客户端实例
 //
 // 参数说明：
-//   - apiKey: 火山引擎 ARK 平台的 API Key（在控制台「API 密钥管理」中创建）
-//   - baseURL: 留空则使用默认的 ARK 平台地址
-//   - model: 推理接入点 ID（ep-xxx 格式），在控制台「模型推理」→「推理接入点」中创建
-//
-// 使用示例 config.yaml:
-//
-//	llm:
-//	  provider: "doubao"
-//	  api_key: "your-ark-api-key"
-//	  base_url: ""                          # 留空使用默认
-//	  model: "ep-20241024100000-xxxxx"      # 接入点 ID
+//   - apiKey: 火山引擎 ARK 平台的 API Key
+//   - baseURL: 留空则使用默认 https://ark.cn-beijing.volces.com/api/v3
+//   - model: 模型 ID 或推理接入点 ID (ep-xxx)
 func NewDoubaoClient(apiKey string, baseURL string, model string) *DoubaoClient {
 	if baseURL == "" {
 		baseURL = doubaoDefaultBaseURL
 	}
-	if model == "" {
-		model = doubaoDefaultModel
-	}
 
-	config := openai.DefaultConfig(apiKey)
-	config.BaseURL = baseURL
-
-	logger.Log.Infow("豆包 (Doubao) LLM 客户端初始化",
+	logger.Log.Infow("豆包 (Doubao) LLM 客户端初始化 [Responses API]",
 		"base_url", baseURL,
-		"model/endpoint", model,
+		"model", model,
 	)
 
 	return &DoubaoClient{
-		client: openai.NewClientWithConfig(config),
-		model:  model,
+		apiKey:     apiKey,
+		baseURL:    baseURL,
+		model:      model,
+		httpClient: &http.Client{Timeout: 120 * time.Second},
 	}
 }
 
@@ -74,75 +176,247 @@ func (c *DoubaoClient) Provider() string {
 }
 
 // Chat 实现 LLMClient 接口
-// 豆包的 Chat Completions API 与 OpenAI 格式完全兼容
-// 使用相同的 go-openai SDK 发送请求，仅 BaseURL 和 Model(endpoint) 不同
+// 将通用的 ChatRequest 转换为 Responses API 格式进行请求
 //
-// 支持的能力（取决于接入点绑定的具体模型）：
-//   - 纯文本对话 (所有豆包模型)
-//   - 多模态 Vision 图文混输 (Doubao-Vision 系列)
-//   - Function Calling 工具调用 (Doubao-Pro 系列)
+// 映射关系：
+//   ChatRequest.SystemPrompt → doubaoRequest.Instructions
+//   ChatRequest.History      → doubaoRequest.Input (消息数组)
+//   ChatRequest.UserMessage  → 追加到 Input 的最后一条 user 消息
+//   ChatRequest.ImagePaths   → user 消息中的 input_image content part
+//   ChatRequest.Tools        → doubaoRequest.Tools
+//
+// 响应映射：
+//   output[type="message"]       → ChatResponse.Content
+//   output[type="function_call"] → ChatResponse.ToolCalls
+//   usage                        → ChatResponse.Usage
 func (c *DoubaoClient) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
-	// 构建消息列表
-	messages := make([]openai.ChatCompletionMessage, 0)
+	// 1. 构建 input 消息数组
+	inputMsgs := make([]interface{}, 0)
 
-	// 1. 添加系统提示词
-	if req.SystemPrompt != "" {
-		messages = append(messages, openai.ChatCompletionMessage{
-			Role:    openai.ChatMessageRoleSystem,
-			Content: req.SystemPrompt,
+	// 将 History 中的消息转换为 Responses API 格式
+	for _, msg := range req.History {
+		switch msg.Role {
+		case "assistant":
+			if len(msg.ToolCalls) > 0 {
+				// assistant 请求工具调用：在 Responses API 中，function_call 是独立的 output 类型
+				// 但在 input 中传回时，我们需要将它们作为 assistant 消息传入
+				inputMsgs = append(inputMsgs, doubaoInputMessage{
+					Role:    "assistant",
+					Content: msg.Content,
+				})
+				// 每个 tool_call 需要作为 function_call_output 的前置上下文
+			} else {
+				inputMsgs = append(inputMsgs, doubaoInputMessage{
+					Role:    "assistant",
+					Content: msg.Content,
+				})
+			}
+		case "tool":
+			// 工具结果：使用 function_call_output 类型
+			inputMsgs = append(inputMsgs, doubaoToolCallInput{
+				Type:   "function_call_output",
+				CallID: msg.ToolCallID,
+				Output: msg.Content,
+			})
+		default:
+			// user 或其他角色
+			inputMsgs = append(inputMsgs, doubaoInputMessage{
+				Role:    msg.Role,
+				Content: msg.Content,
+			})
+		}
+	}
+
+	// 2. 构建当前用户消息（支持多模态图片）
+	if req.UserMessage != "" || len(req.ImagePaths) > 0 {
+		userContent, err := c.buildMultimodalContent(req.UserMessage, req.ImagePaths)
+		if err != nil {
+			return nil, fmt.Errorf("构建多模态消息失败: %w", err)
+		}
+		inputMsgs = append(inputMsgs, doubaoInputMessage{
+			Role:    "user",
+			Content: userContent,
 		})
 	}
 
-	// 2. 添加历史对话记录（用于 ReAct 多轮循环）
-	messages = append(messages, req.History...)
-
-	// 3. 构建用户消息（复用公共的多模态消息构建函数）
-	userMsg, err := buildUserMessage(req.UserMessage, req.ImagePaths)
+	// 3. 序列化 input
+	inputJSON, err := json.Marshal(inputMsgs)
 	if err != nil {
-		return nil, fmt.Errorf("构建用户消息失败: %w", err)
+		return nil, fmt.Errorf("序列化 input 失败: %w", err)
 	}
-	messages = append(messages, userMsg)
 
-	// 4. 构建请求参数
-	chatReq := openai.ChatCompletionRequest{
-		Model:    c.model,
-		Messages: messages,
+	// 4. 构建请求体
+	reqBody := doubaoRequest{
+		Model:        c.model,
+		Input:        inputJSON,
+		Instructions: req.SystemPrompt,
+		Stream:       false,
 	}
 
 	// 5. 注册工具（如果有）
 	if len(req.Tools) > 0 {
-		chatReq.Tools = buildToolDefinitions(req.Tools)
+		reqBody.Tools = c.buildTools(req.Tools)
 	}
 
-	// 6. 发送请求
-	logger.Log.Debugw("豆包 (Doubao) 请求发送中",
-		"endpoint", c.model,
-		"message_count", len(messages),
+	// 6. 发送 HTTP 请求
+	logger.Log.Debugw("豆包 Responses API 请求发送中",
+		"model", c.model,
+		"input_count", len(inputMsgs),
 		"tool_count", len(req.Tools),
 	)
 
-	resp, err := c.client.CreateChatCompletion(ctx, chatReq)
-	if err != nil {
-		return nil, fmt.Errorf("调用豆包 API 失败: %w", err)
+	var respBody doubaoResponse
+	if err := c.doPost(ctx, c.baseURL+doubaoResponsesPath, reqBody, &respBody); err != nil {
+		return nil, fmt.Errorf("调用豆包 Responses API 失败: %w", err)
 	}
 
-	if len(resp.Choices) == 0 {
-		return nil, fmt.Errorf("豆包返回了空的响应")
+	// 7. 检查错误
+	if respBody.Error != nil {
+		return nil, fmt.Errorf("豆包 API 错误 [%s]: %s", respBody.Error.Code, respBody.Error.Message)
 	}
 
-	choice := resp.Choices[0]
+	// 8. 解析 output 数组
+	result := &ChatResponse{}
+	for _, item := range respBody.Output {
+		switch item.Type {
+		case "message":
+			// 提取文本内容
+			for _, c := range item.Content {
+				if c.Type == "output_text" {
+					result.Content += c.Text
+				}
+			}
+		case "function_call":
+			// 提取工具调用
+			result.ToolCalls = append(result.ToolCalls, ToolCall{
+				ID:   item.CallID,
+				Type: "function",
+				Function: FunctionCall{
+					Name:      item.Name,
+					Arguments: item.Arguments,
+				},
+			})
+		case "reasoning":
+			// 深度思考的推理过程，目前仅记录日志
+			for _, s := range item.Summary {
+				logger.Log.Debugw("豆包 Reasoning", "summary", s.Text)
+			}
+		}
+	}
 
-	// 记录 Token 消耗（豆包按 Token 计费，方便成本追踪）
-	logger.Log.Debugw("豆包 (Doubao) 请求完成",
-		"endpoint", c.model,
-		"prompt_tokens", resp.Usage.PromptTokens,
-		"completion_tokens", resp.Usage.CompletionTokens,
-		"total_tokens", resp.Usage.TotalTokens,
+	// 9. 填充 Usage
+	if respBody.Usage != nil {
+		result.Usage = Usage{
+			PromptTokens:     respBody.Usage.InputTokens,
+			CompletionTokens: respBody.Usage.OutputTokens,
+			TotalTokens:      respBody.Usage.TotalTokens,
+		}
+	}
+
+	logger.Log.Debugw("豆包 Responses API 请求完成",
+		"model", c.model,
+		"response_id", respBody.ID,
+		"content_length", len(result.Content),
+		"tool_calls", len(result.ToolCalls),
+		"total_tokens", result.Usage.TotalTokens,
 	)
 
-	return &ChatResponse{
-		Content:   choice.Message.Content,
-		ToolCalls: choice.Message.ToolCalls,
-		Usage:     resp.Usage,
-	}, nil
+	return result, nil
+}
+
+// ==================== 内部工具函数 ====================
+
+// buildMultimodalContent 构建多模态 content
+// 如果有图片，返回 content parts 数组；否则返回纯文本字符串
+func (c *DoubaoClient) buildMultimodalContent(text string, imagePaths []string) (interface{}, error) {
+	if len(imagePaths) == 0 {
+		return text, nil
+	}
+
+	// 有图片时构建 content parts 数组
+	parts := make([]doubaoContentPart, 0)
+
+	// 文本部分
+	if text != "" {
+		parts = append(parts, doubaoContentPart{
+			Type: "input_text",
+			Text: text,
+		})
+	}
+
+	// 图片部分（Responses API 使用 input_image 类型）
+	for i, path := range imagePaths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("读取第 %d 张图片失败 (%s): %w", i+1, path, err)
+		}
+
+		mimeType := detectMIME(filepath.Ext(path))
+		b64 := base64.StdEncoding.EncodeToString(data)
+		dataURI := fmt.Sprintf("data:%s;base64,%s", mimeType, b64)
+
+		parts = append(parts, doubaoContentPart{
+			Type: "input_image",
+			ImageURL: &doubaoImageURLObj{
+				URL:    dataURI,
+				Detail: "auto",
+			},
+		})
+	}
+
+	return parts, nil
+}
+
+// buildTools 将 AITool 列表转换为 Responses API 的工具定义格式
+func (c *DoubaoClient) buildTools(aiTools []tools.AITool) []doubaoToolDef {
+	defs := make([]doubaoToolDef, 0, len(aiTools))
+	for _, t := range aiTools {
+		defs = append(defs, doubaoToolDef{
+			Type: "function",
+			Function: doubaoFunctionDef{
+				Name:        t.Name(),
+				Description: t.Description(),
+				Parameters:  t.ParametersSchema(),
+			},
+		})
+	}
+	return defs
+}
+
+// doPost 发送 POST 请求并解析 JSON 响应
+func (c *DoubaoClient) doPost(ctx context.Context, url string, body interface{}, dest interface{}) error {
+	jsonData, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("序列化请求体失败: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(jsonData))
+	if err != nil {
+		return fmt.Errorf("创建 HTTP 请求失败: %w", err)
+	}
+
+	// ARK 认证：Bearer Token
+	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("HTTP 请求发送失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("读取响应体失败: %w", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("API 返回状态码 %d，响应: %s", resp.StatusCode, string(respBytes))
+	}
+
+	if err := json.Unmarshal(respBytes, dest); err != nil {
+		return fmt.Errorf("解析响应 JSON 失败: %w (原始响应: %s)", err, string(respBytes))
+	}
+
+	return nil
 }
