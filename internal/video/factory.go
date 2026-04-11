@@ -15,10 +15,9 @@ func NewVideoProvider(providerName string, apiKey string, baseURL string, model 
 	switch providerName {
 	case ProviderByteDance:
 		return NewByteDanceClient(apiKey, baseURL, model), nil
-	// 未来扩展示例:
-	// case ProviderKling:
-	//     return NewKlingClient(apiKey, baseURL, model), nil
+	case ProviderKling:
+		return NewKlingClient(apiKey, baseURL, model), nil
 	default:
-		return nil, fmt.Errorf("不支持的视频服务提供商: %s，当前支持: %s", providerName, ProviderByteDance)
+		return nil, fmt.Errorf("不支持的视频服务提供商: %s，当前支持: %s, %s", providerName, ProviderByteDance, ProviderKling)
 	}
 }
