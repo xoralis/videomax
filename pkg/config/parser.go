@@ -15,6 +15,7 @@ type AppConfig struct {
 	LLM     LLMConfig     `yaml:"llm"`
 	Video   VideoConfig   `yaml:"video"`
 	Storage StorageConfig `yaml:"storage"`
+	Log     LogConfig     `yaml:"log"`
 }
 
 // ServerConfig HTTP 服务相关配置
@@ -29,8 +30,8 @@ type MySQLConfig struct {
 
 // KafkaConfig 消息队列连接配置
 type KafkaConfig struct {
-	Brokers []string `yaml:"brokers"` // Kafka Broker 地址列表
-	Topic   string   `yaml:"topic"`   // 投递/消费的 Topic 名称
+	Brokers []string `yaml:"brokers"`  // Kafka Broker 地址列表
+	Topic   string   `yaml:"topic"`    // 投递/消费的 Topic 名称
 	GroupID string   `yaml:"group_id"` // 消费者组 ID
 }
 
@@ -47,12 +48,24 @@ type VideoConfig struct {
 	Provider string `yaml:"provider"` // 当前使用的服务商标识（如 bytedance, kling）
 	APIKey   string `yaml:"api_key"`
 	BaseURL  string `yaml:"base_url"`
-	Model    string `yaml:"model"`    // 大模型 ID，如 doubao-seedance-2-0-260128
+	Model    string `yaml:"model"` // 大模型 ID，如 doubao-seedance-2-0-260128
 }
 
 // StorageConfig 本地文件存储路径配置
 type StorageConfig struct {
 	UploadDir string `yaml:"upload_dir"` // 用户上传的参考图片存放目录
+}
+
+// LogConfig 日志配置
+type LogConfig struct {
+	Level      string `yaml:"level"`        // 日志级别: debug, info, warn, error, fatal
+	Mode       string `yaml:"mode"`         // 日志模式: console, file, both
+	FilePath   string `yaml:"file_path"`    // 文件日志路径
+	Format     string `yaml:"format"`       // 日志格式: console, json
+	MaxSizeMB  int    `yaml:"max_size_mb"`  // 单个日志文件最大大小（MB）
+	MaxBackups int    `yaml:"max_backups"`  // 最大保留日志文件数量
+	MaxAgeDays int    `yaml:"max_age_days"` // 日志保留天数
+	Compress   bool   `yaml:"compress"`     // 是否压缩日志
 }
 
 // Load 从指定 YAML 文件路径加载并解析配置

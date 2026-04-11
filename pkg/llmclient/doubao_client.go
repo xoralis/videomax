@@ -60,6 +60,14 @@ type doubaoContentPart struct {
 	FileID string `json:"file_id,omitempty"` // type=input_image 时，使用 file_id
 }
 
+// doubaoFunctionCallInput 传回的历史工具调用指令
+type doubaoFunctionCallInput struct {
+	Type      string `json:"type"`      // "function_call"
+	CallID    string `json:"call_id"`
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
 // doubaoToolCallInput 传入工具调用结果的消息
 type doubaoToolCallInput struct {
 	Type       string `json:"type"`        // "function_call_output"
@@ -189,13 +197,23 @@ func (c *DoubaoClient) Chat(ctx context.Context, req ChatRequest) (*ChatResponse
 		switch msg.Role {
 		case "assistant":
 			if len(msg.ToolCalls) > 0 {
-				// assistant 请求工具调用：在 Responses API 中，function_call 是独立的 output 类型
-				// 但在 input 中传回时，我们需要将它们作为 assistant 消息传入
-				inputMsgs = append(inputMsgs, doubaoInputMessage{
-					Role:    "assistant",
-					Content: msg.Content,
-				})
-				// 每个 tool_call 需要作为 function_call_output 的前置上下文
+				// assistant 请求工具调用：在 Responses API 中，历史 function_call 必须用专门的 type 且没有 role
+				// 如果大模型同时返回了思考或文本
+				if msg.Content != "" {
+					inputMsgs = append(inputMsgs, doubaoInputMessage{
+						Role:    "assistant",
+						Content: msg.Content,
+					})
+				}
+				// 遍历添加函数调用历史
+				for _, tc := range msg.ToolCalls {
+					inputMsgs = append(inputMsgs, doubaoFunctionCallInput{
+						Type:      "function_call",
+						CallID:    tc.ID,
+						Name:      tc.Function.Name,
+						Arguments: tc.Function.Arguments,
+					})
+				}
 			} else {
 				inputMsgs = append(inputMsgs, doubaoInputMessage{
 					Role:    "assistant",

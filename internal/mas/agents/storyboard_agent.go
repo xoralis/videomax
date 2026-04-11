@@ -49,6 +49,12 @@ Shot 2:
 // Process 执行分镜规划 Agent 的核心逻辑
 func (a *StoryboardAgent) Process(ctx context.Context, masCtx *protocol.MASContext) error {
 	logger.Log.Infow("StoryboardAgent: 开始分镜规划", "task_id", masCtx.TaskID)
+	logger.Log.Debugw("StoryboardAgent: 【输入数据】",
+		"task_id", masCtx.TaskID,
+		"input.Storyline", masCtx.Storyline,
+		"input.Characters", masCtx.Characters,
+		"input.ImagesCount", len(masCtx.Images),
+	)
 
 	userMsg := fmt.Sprintf(
 		"故事大纲：\n%s\n\n角色设定：\n%s\n\n参考图数量: %d 张\n\n请为这个故事设计分镜表。",
@@ -65,5 +71,9 @@ func (a *StoryboardAgent) Process(ctx context.Context, masCtx *protocol.MASConte
 
 	masCtx.SceneList = resp.Content
 	logger.Log.Infow("StoryboardAgent: 分镜规划完成", "task_id", masCtx.TaskID, "scene_list_length", len(resp.Content))
+	logger.Log.Debugw("StoryboardAgent: 【输出数据】",
+		"task_id", masCtx.TaskID,
+		"output.SceneList", masCtx.SceneList,
+	)
 	return nil
 }

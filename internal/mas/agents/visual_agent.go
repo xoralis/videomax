@@ -46,6 +46,7 @@ Shot 2 Prompt:
 ...
 
 注意事项：
+- 总的字数不能超过1000个字符
 - 提示词必须使用英文
 - 主体描述必须精确引用角色设定卡中的锚点词
 - 每个 Shot 的提示词独立完整，不要使用指代词
@@ -55,6 +56,13 @@ Shot 2 Prompt:
 // Process 执行 Visual Agent 的核心逻辑 (ReAct 循环)
 func (a *VisualAgent) Process(ctx context.Context, masCtx *protocol.MASContext) error {
 	logger.Log.Infow("VisualAgent: 开始构建专业提示词 (ReAct 模式)", "task_id", masCtx.TaskID)
+	logger.Log.Debugw("VisualAgent: 【输入数据】",
+		"task_id", masCtx.TaskID,
+		"input.SceneList", masCtx.SceneList,
+		"input.Characters", masCtx.Characters,
+		"input.AspectRatio", masCtx.AspectRatio,
+		"input.ReviewFeedback", masCtx.ReviewFeedback,
+	)
 
 	userMsg := fmt.Sprintf(
 		"分镜表：\n%s\n\n角色设定：\n%s\n\n画面比例：%s",
@@ -65,14 +73,16 @@ func (a *VisualAgent) Process(ctx context.Context, masCtx *protocol.MASContext) 
 	}
 
 	// 使用自定义的 Message 类型（不依赖 go-openai）
-	var history []llmclient.Message
+	history := []llmclient.Message{
+		{Role: "user", Content: userMsg},
+	}
 
 	for loop := 0; loop < a.maxLoops; loop++ {
 		logger.Log.Debugw("VisualAgent: ReAct 循环迭代", "task_id", masCtx.TaskID, "loop", loop+1)
 
 		resp, err := a.llm.Chat(ctx, llmclient.ChatRequest{
 			SystemPrompt: visualSystemPrompt,
-			UserMessage:  userMsg,
+			UserMessage:  "",
 			Tools:        a.aiTools,
 			History:      history,
 		})
@@ -84,6 +94,10 @@ func (a *VisualAgent) Process(ctx context.Context, masCtx *protocol.MASContext) 
 		if len(resp.ToolCalls) == 0 {
 			masCtx.FinalPrompts = resp.Content
 			logger.Log.Infow("VisualAgent: 专业提示词构建完成", "task_id", masCtx.TaskID, "loops_used", loop+1)
+			logger.Log.Debugw("VisualAgent: 【输出数据】",
+				"task_id", masCtx.TaskID,
+				"output.FinalPrompts", masCtx.FinalPrompts,
+			)
 			return nil
 		}
 

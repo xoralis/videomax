@@ -21,18 +21,18 @@ type presetSearchParams struct {
 // providerPresets 各供应商的预设最佳实践规则库（硬编码版本，后续可替换为数据库查询）
 var providerPresets = map[string]map[string]string{
 	"bytedance": {
-		"resolution":   "推荐分辨率: 1920x1080 (16:9) 或 1080x1920 (9:16)。最大支持 4K。",
-		"duration":     "支持视频时长: 5秒 或 10秒。推荐使用 5 秒以获得最佳质量。",
-		"style":        "支持的风格关键词: cinematic, anime, realistic, watercolor, cyberpunk, fantasy。",
-		"camera":       "推荐运镜关键词: tracking shot, dolly zoom, pan left/right, tilt up/down, static, aerial view。",
+		"resolution":    "推荐分辨率: 1920x1080 (16:9) 或 1080x1920 (9:16)。最大支持 4K。",
+		"duration":      "支持视频时长: 5秒 或 10秒。推荐使用 5 秒以获得最佳质量。",
+		"style":         "支持的风格关键词: cinematic, anime, realistic, watercolor, cyberpunk, fantasy。",
+		"camera":        "推荐运镜关键词: tracking shot, dolly zoom, pan left/right, tilt up/down, static, aerial view。",
 		"best_practice": "提示词建议: 1.主体描述放在最前面 2.运镜指令紧跟其后 3.风格和光影放最后 4.避免否定词。",
 	},
 	"kling": {
-		"resolution":   "推荐分辨率: 1280x720 或 1920x1080。",
-		"duration":     "支持视频时长: 5秒、10秒。专业版支持延长至 30 秒。",
-		"style":        "支持的风格关键词: realistic, cartoon, oil painting, 3d render。",
-		"camera":       "推荐运镜关键词: push in, pull out, orbit, static, handheld。",
-		"best_practice": "提示词建议: 1.使用英文效果更佳 2.画面主体+动作+环境三段式结构 3.添加 'high quality, 4K' 等质量词。",
+		"resolution":    "推荐分辨率: 1280x720 或 1920x1080。",
+		"duration":      "支持视频时长: 5秒、10秒。专业版支持延长至 30 秒。",
+		"style":         "支持的风格关键词: realistic, cartoon, oil painting, 3d render。",
+		"camera":        "推荐运镜关键词: push in, pull out, orbit, static, handheld。",
+		"best_practice": "提示词建议: 1.使用中文效果更佳 2.画面主体+动作+环境三段式结构 3.添加 'high quality, 4K' 等质量词。",
 	},
 }
 

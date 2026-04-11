@@ -26,16 +26,20 @@ import (
 )
 
 func main() {
-	// ==================== 1. 初始化日志系统 ====================
-	logger.Init("info")
-	logger.Log.Info("🚀 videoMax 多智能体视频生成系统启动中...")
-
-	// ==================== 2. 加载配置文件 ====================
+	// ==================== 1. 加载配置文件 ====================
 	cfg, err := config.Load("configs/config.yaml")
 	if err != nil {
-		logger.Log.Fatalw("配置文件加载失败", "error", err)
+		fmt.Fprintf(os.Stderr, "加载配置失败: %v\n", err)
+		os.Exit(1)
 	}
-	logger.Log.Infow("配置加载成功", "port", cfg.Server.Port, "video_provider", cfg.Video.Provider)
+	fmt.Printf("配置加载成功, port: %d, video_provider: %s\n", cfg.Server.Port, cfg.Video.Provider)
+
+	// ==================== 2. 初始化日志系统 ====================
+	if err := logger.Init(cfg.Log); err != nil {
+		fmt.Fprintf(os.Stderr, "初始化日志失败: %v\n", err)
+		os.Exit(1)
+	}
+	logger.Log.Info("🚀 videoMax 多智能体视频生成系统启动中...")
 
 	// ==================== 3. 初始化 MySQL 数据库连接 ====================
 	db, err := gorm.Open(mysql.Open(cfg.MySQL.DSN), &gorm.Config{})

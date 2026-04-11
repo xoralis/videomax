@@ -53,6 +53,13 @@ REJECTED
 // Process 执行质检 Agent 的核心逻辑 (Reflection 反思范式)
 func (a *CriticAgent) Process(ctx context.Context, masCtx *protocol.MASContext) error {
 	logger.Log.Infow("CriticAgent: 开始质检审核 (Reflection 模式)", "task_id", masCtx.TaskID)
+	logger.Log.Debugw("CriticAgent: 【输入数据】",
+		"task_id", masCtx.TaskID,
+		"input.Storyline", masCtx.Storyline,
+		"input.Characters", masCtx.Characters,
+		"input.SceneList", masCtx.SceneList,
+		"input.FinalPrompts", masCtx.FinalPrompts,
+	)
 
 	userMsg := fmt.Sprintf(
 		"=== 故事大纲 ===\n%s\n\n=== 角色设定 ===\n%s\n\n=== 分镜表 ===\n%s\n\n=== 待审核的视频生成提示词 ===\n%s\n\n请进行严格审查。",
@@ -73,11 +80,21 @@ func (a *CriticAgent) Process(ctx context.Context, masCtx *protocol.MASContext) 
 		masCtx.ReviewFeedback = ""
 		masCtx.ReviewPassed = true
 		logger.Log.Infow("CriticAgent: ✅ 质检通过", "task_id", masCtx.TaskID)
+		logger.Log.Debugw("CriticAgent: 【输出数据】",
+			"task_id", masCtx.TaskID,
+			"output.ReviewPassed", masCtx.ReviewPassed,
+			"output.ReviewFeedback", masCtx.ReviewFeedback,
+		)
 		return nil
 	}
 
 	masCtx.ReviewFeedback = reviewResult
 	masCtx.ReviewPassed = false
 	logger.Log.Warnw("CriticAgent: ❌ 质检不通过，需要打回", "task_id", masCtx.TaskID)
+	logger.Log.Debugw("CriticAgent: 【输出数据】",
+		"task_id", masCtx.TaskID,
+		"output.ReviewPassed", masCtx.ReviewPassed,
+		"output.ReviewFeedback", masCtx.ReviewFeedback,
+	)
 	return fmt.Errorf("质检不通过: %s", reviewResult)
 }

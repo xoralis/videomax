@@ -42,6 +42,12 @@ Step 3 - 故事大纲：用 2-3 句话输出最终的故事大纲，包含开头
 // Process 执行故事策划 Agent 的核心逻辑
 func (a *StoryAgent) Process(ctx context.Context, masCtx *protocol.MASContext) error {
 	logger.Log.Infow("StoryAgent: 开始构思故事大纲", "task_id", masCtx.TaskID)
+	logger.Log.Debugw("StoryAgent: 【输入数据】",
+		"task_id", masCtx.TaskID,
+		"input.UserIdea", masCtx.UserIdea,
+		"input.ImagesCount", len(masCtx.Images),
+		"input.Images", masCtx.Images,
+	)
 
 	userMsg := fmt.Sprintf("用户的创意描述：\n%s", masCtx.UserIdea)
 	if len(masCtx.Images) > 0 {
@@ -59,5 +65,9 @@ func (a *StoryAgent) Process(ctx context.Context, masCtx *protocol.MASContext) e
 
 	masCtx.Storyline = resp.Content
 	logger.Log.Infow("StoryAgent: 故事大纲构思完成", "task_id", masCtx.TaskID, "storyline_length", len(resp.Content))
+	logger.Log.Debugw("StoryAgent: 【输出数据】",
+		"task_id", masCtx.TaskID,
+		"output.Storyline", masCtx.Storyline,
+	)
 	return nil
 }

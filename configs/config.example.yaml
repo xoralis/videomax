@@ -20,10 +20,24 @@ llm:
   base_url: ""                              # 留空使用对应供应商的默认地址
 
 video:
-  provider: "bytedance"
-  api_key: "your-ark-api-key-here"        # 火山引擎 ARK API Key
-  base_url: ""                            # 留空则使用默认: https://ark.cn-beijing.volces.com/api/v3
-  model: "doubao-seedance-2-0-260128"     # Seedance 模型 ID，可按需切换
+  provider: "bytedance"                   # "bytedance"（字节 Seedance）或 "kling"（可灵）
+  api_key: "your-ark-api-key-here"        # bytedance: ARK API Key；kling: "access_key:secret_key" 格式
+  base_url: ""                            # 留空使用默认地址
+  model: "doubao-seedance-2-0-260128"     # bytedance: Seedance 模型 ID；kling: "kling-v1" / "kling-v2-6" / "kling-v3"
+  # --- 可灵配置示例 ---
+  # provider: "kling"
+  # api_key: "your-access-key:your-secret-key"  # AK:SK 用冒号拼接
+  # model: "kling-v1"
 
 storage:
   upload_dir: "./uploads"
+
+log:
+  level: "info"
+  mode: "console"        # console / file / both
+  file_path: "./logs/app.log"
+  format: "console"      # console / json
+  max_size_mb: 100
+  max_backups: 10
+  max_age_days: 7
+  compress: true
