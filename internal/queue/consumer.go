@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/IBM/sarama"
 
@@ -143,8 +144,27 @@ func (c *Consumer) processTask(ctx context.Context, msg VideoTaskMessage) error 
 }
 
 // pollVideoStatus 轮询视频生成状态
-// TODO: 实现真正的延迟轮询逻辑（例如每隔 10 秒查询一次，超时 10 分钟）
 func (c *Consumer) pollVideoStatus(ctx context.Context, providerTaskID string) (*video.TaskStatus, error) {
-	// 当前简化为单次查询（桩代码），后续实现带超时的循环轮询
-	return c.videoFactory.CheckStatus(ctx, providerTaskID)
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	timeout := time.After(10 * time.Minute)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-timeout:
+			return nil, fmt.Errorf("轮询超时（10分钟）")
+		case <-ticker.C:
+			status, err := c.videoFactory.CheckStatus(ctx, providerTaskID)
+			if err != nil {
+				logger.Log.Warnw("轮询查询失败，稍后重试", "error", err)
+				continue
+			}
+			if status.IsFinished {
+				return status, nil
+			}
+			logger.Log.Infow("视频生成中，继续等待...", "provider_task_id", providerTaskID)
+		}
+	}
 }
