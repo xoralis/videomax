@@ -16,7 +16,7 @@ import (
 
 // Consumer Kafka 消费者，负责从 Topic 中取出任务并驱动 MAS 多智能体流水线
 type Consumer struct {
-	orchestrator *mas.Orchestrator      // 多智能体调度器
+	orchestrator *mas.Orchestrator         // 多智能体调度器
 	taskRepo     repository.TaskRepository // 任务存储层
 	videoFactory video.VideoProvider       // 视频生成服务提供商
 }
