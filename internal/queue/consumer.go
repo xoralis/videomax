@@ -20,14 +20,16 @@ type Consumer struct {
 	orchestrator *mas.Orchestrator         // 多智能体调度器
 	taskRepo     repository.TaskRepository // 任务存储层
 	videoFactory video.VideoProvider       // 视频生成服务提供商
+	emitter      *mas.EventEmitter         // SSE 事件发射器
 }
 
 // NewConsumer 创建 Kafka 消费者实例
-func NewConsumer(orch *mas.Orchestrator, repo repository.TaskRepository, vp video.VideoProvider) *Consumer {
+func NewConsumer(orch *mas.Orchestrator, repo repository.TaskRepository, vp video.VideoProvider, emitter *mas.EventEmitter) *Consumer {
 	return &Consumer{
 		orchestrator: orch,
 		taskRepo:     repo,
 		videoFactory: vp,
+		emitter:      emitter,
 	}
 }
 
@@ -84,6 +86,9 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 // 执行流程: 更新状态 -> MAS多智能体协作 -> 保存提示词 -> 提交视频生成 -> 轮询结果 -> 保存下载链接
 func (c *Consumer) processTask(ctx context.Context, msg VideoTaskMessage) error {
 	taskID := msg.TaskID
+
+	// 任务完成（无论成功/失败）后关闭 SSE 事件通道，通知前端连接结束
+	defer c.emitter.Close(taskID)
 
 	// 1. 更新任务状态为「处理中」
 	if err := c.taskRepo.UpdateStatus(ctx, taskID, entity.TaskStatusStory); err != nil {

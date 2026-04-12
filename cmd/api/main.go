@@ -81,6 +81,10 @@ func main() {
 	orchestrator.SetVisualAgent(visualAgent)
 	orchestrator.SetCriticAgent(criticAgent)
 
+	// 创建 SSE 事件发射器并注入 Orchestrator
+	eventEmitter := mas.NewEventEmitter()
+	orchestrator.SetEventEmitter(eventEmitter)
+
 	logger.Log.Info("MAS 多智能体 Orchestrator 组装完成 (Story → Character → Storyboard → Visual ↔ Critic)")
 
 	// ==================== 8. 初始化视频服务提供商 (工厂模式) ====================
@@ -98,7 +102,7 @@ func main() {
 	defer kafkaProducer.Close()
 
 	producer := queue.NewProducer(kafkaProducer, cfg.Kafka.Topic)
-	consumer := queue.NewConsumer(orchestrator, taskRepo, videoProvider)
+	consumer := queue.NewConsumer(orchestrator, taskRepo, videoProvider, eventEmitter)
 
 	// 启动 Kafka 消费者协程（后台持续监听 Topic）
 	kafkaConsumerGroup, err := kafkapkg.NewConsumerGroup(cfg.Kafka.Brokers, cfg.Kafka.GroupID)
@@ -130,7 +134,8 @@ func main() {
 
 	// ==================== 11. 初始化 HTTP 路由并启动 Web 服务 ====================
 	videoHandler := handler.NewVideoHandler(taskRepo, producer, cfg.Storage.UploadDir)
-	router := api.SetupRouter(videoHandler)
+	sseHandler := handler.NewSSEHandler(eventEmitter)
+	router := api.SetupRouter(videoHandler, sseHandler)
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
 	logger.Log.Infow("🎬 videoMax HTTP 服务已就绪", "addr", addr)

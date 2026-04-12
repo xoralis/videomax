@@ -15,12 +15,25 @@ type Orchestrator struct {
 	visualAgent protocol.Agent
 	criticAgent protocol.Agent
 	maxRetries  int
+	emitter     *EventEmitter // SSE 事件发射器（可选，nil 时不推送事件）
 }
 
 func NewOrchestrator(maxRetries int) *Orchestrator {
 	return &Orchestrator{
 		agents:     make([]protocol.Agent, 0),
 		maxRetries: maxRetries,
+	}
+}
+
+// SetEventEmitter 注入 SSE 事件发射器
+func (o *Orchestrator) SetEventEmitter(emitter *EventEmitter) {
+	o.emitter = emitter
+}
+
+// emit 安全地发射事件（emitter 为 nil 时静默跳过）
+func (o *Orchestrator) emit(event AgentEvent) {
+	if o.emitter != nil {
+		o.emitter.Emit(event)
 	}
 }
 
@@ -60,9 +73,13 @@ func (o *Orchestrator) Run(ctx context.Context, taskID string, userIdea string, 
 			continue
 		}
 		logger.Log.Infow("Orchestrator: 调度 Agent", "task_id", taskID, "agent", agent.Name())
+		o.emit(AgentEvent{TaskID: taskID, AgentName: agent.Name(), Status: "running", Message: agent.Name() + " 正在工作..."})
+
 		if err := agent.Process(ctx, masCtx); err != nil {
+			o.emit(AgentEvent{TaskID: taskID, AgentName: agent.Name(), Status: "error", Message: err.Error()})
 			return nil, fmt.Errorf("Agent '%s' 执行失败: %w", agent.Name(), err)
 		}
+		o.emit(AgentEvent{TaskID: taskID, AgentName: agent.Name(), Status: "done", Message: agent.Name() + " 执行完成"})
 	}
 
 	// 阶段二：Visual <-> Critic 质检循环 (Reflection 打回机制)
@@ -72,15 +89,23 @@ func (o *Orchestrator) Run(ctx context.Context, taskID string, userIdea string, 
 
 	for retry := 0; retry <= o.maxRetries; retry++ {
 		logger.Log.Infow("Orchestrator: 调度 VisualAgent", "task_id", taskID, "attempt", retry+1)
+		o.emit(AgentEvent{TaskID: taskID, AgentName: "VisualAgent", Status: "running", Message: fmt.Sprintf("VisualAgent 正在构建提示词 (第 %d 轮)...", retry+1)})
+
 		if err := o.visualAgent.Process(ctx, masCtx); err != nil {
+			o.emit(AgentEvent{TaskID: taskID, AgentName: "VisualAgent", Status: "error", Message: err.Error()})
 			return nil, fmt.Errorf("VisualAgent 第 %d 次执行失败: %w", retry+1, err)
 		}
+		o.emit(AgentEvent{TaskID: taskID, AgentName: "VisualAgent", Status: "done", Message: "VisualAgent 提示词构建完成"})
 
 		logger.Log.Infow("Orchestrator: 调度 CriticAgent 审查", "task_id", taskID, "attempt", retry+1)
+		o.emit(AgentEvent{TaskID: taskID, AgentName: "CriticAgent", Status: "running", Message: "CriticAgent 正在质检审核..."})
+
 		err := o.criticAgent.Process(ctx, masCtx)
 
 		if err == nil && masCtx.ReviewPassed {
 			logger.Log.Infow("Orchestrator: ✅ 质检通过，协作完成", "task_id", taskID, "total_attempts", retry+1)
+			o.emit(AgentEvent{TaskID: taskID, AgentName: "CriticAgent", Status: "done", Message: "✅ 质检通过"})
+			o.emit(AgentEvent{TaskID: taskID, AgentName: "Pipeline", Status: "done", Message: "多智能体协作完成，提交视频生成..."})
 			return masCtx, nil
 		}
 
@@ -88,10 +113,12 @@ func (o *Orchestrator) Run(ctx context.Context, taskID string, userIdea string, 
 			logger.Log.Warnw("Orchestrator: ❌ 质检未通过，打回 VisualAgent",
 				"task_id", taskID, "attempt", retry+1, "feedback_preview", truncate(masCtx.ReviewFeedback, 100),
 			)
+			o.emit(AgentEvent{TaskID: taskID, AgentName: "CriticAgent", Status: "rejected", Message: fmt.Sprintf("❌ 质检未通过，打回重试 (%d/%d)", retry+1, o.maxRetries)})
 		}
 	}
 
 	logger.Log.Errorw("Orchestrator: 超过最大重试次数，强制使用当前版本", "task_id", taskID)
+	o.emit(AgentEvent{TaskID: taskID, AgentName: "Pipeline", Status: "done", Message: "提示词已生成（超过最大重试次数），提交视频生成..."})
 	return masCtx, nil
 }
 

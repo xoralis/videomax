@@ -9,7 +9,7 @@ import (
 
 // SetupRouter 初始化并注册所有 HTTP 路由
 // 将 Handler 与具体的 URL 路径绑定
-func SetupRouter(videoHandler *handler.VideoHandler) *gin.Engine {
+func SetupRouter(videoHandler *handler.VideoHandler, sseHandler *handler.SSEHandler) *gin.Engine {
 	// 生产模式下关闭 Gin 的调试日志
 	gin.SetMode(gin.ReleaseMode)
 
@@ -27,6 +27,9 @@ func SetupRouter(videoHandler *handler.VideoHandler) *gin.Engine {
 
 		// GET /api/task/:id - 轮询视频生成任务状态
 		apiGroup.GET("/task/:id", videoHandler.QueryTask)
+
+		// GET /api/events/:taskId - SSE 实时推送 Agent 协作进度
+		apiGroup.GET("/events/:taskId", sseHandler.StreamEvents)
 	}
 
 	return r

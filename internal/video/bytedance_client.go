@@ -41,8 +41,13 @@ type seedanceImageURL struct {
 // seedanceGenerateReq 提交视频生成任务的请求体
 // 参考：https://www.volcengine.com/docs/82379/1541595
 type seedanceGenerateReq struct {
-	Model   string            `json:"model"`   // 模型 ID，如 doubao-seedance-2-0-260128
-	Content []seedanceContent `json:"content"` // 多模态内容数组（文本 + 图片）
+	Model     string            `json:"model"`               // 模型 ID，如 doubao-seedance-2-0-260128
+	Content   []seedanceContent `json:"content"`             // 多模态内容数组（文本 + 图片）
+	Seed      int               `json:"seed,omitempty"`      // 随机种子，用于生成可复现的结果
+	Duration  float64           `json:"duration,omitempty"`  // 视频时长（秒），仅当 type="video" 时有效
+	Ratio     string            `json:"ratio,omitempty"`     // 画面比例，如 "16:9"、"9:16"、"1:1"
+	Watermark string            `json:"watermark,omitempty"` // 水印，如 "volcengine"、"none"
+	TaskType  string            `json:"task_type,omitempty"` // 任务类型，如 "i2v"、"r2v"
 }
 
 // seedanceGenerateResp 提交任务的响应体
@@ -121,10 +126,15 @@ func (c *ByteDanceClient) GenerateVideo(ctx context.Context, req GenerateRequest
 	)
 
 	// 组装 content 数组
-	// 注意：Seedance 图生视频模式需要将图片放在 content 首位（作为起始帧）
 	var contents []seedanceContent
 
-	// 先放入参考图片（如有）
+	// 提示词
+	contents = append(contents, seedanceContent{
+		Type: "text",
+		Text: req.Prompt,
+	})
+
+	// 放入参考图片（如有）
 	for i, imgPath := range req.ImagePaths {
 		b64URI, err := imageToBase64URI(imgPath)
 		if err != nil {
@@ -135,26 +145,20 @@ func (c *ByteDanceClient) GenerateVideo(ctx context.Context, req GenerateRequest
 			ImageURL: &seedanceImageURL{
 				URL: b64URI,
 			},
-			Role: "reference_image",
+			// TODO 兼容不同模型格式
+			// Role: "reference_image", seedance 1.0不支持参考图参数
 		})
 	}
-
-	// 再放入文本提示词
-	// 如果有画面比例要求，追加到 Prompt 末尾（Seedance 支持在 Prompt 中指定比例）
-	prompt := req.Prompt
-	if req.AspectRatio != "" {
-		prompt += fmt.Sprintf(". aspect ratio: %s", req.AspectRatio)
-	}
-	contents = append(contents, seedanceContent{
-		Type: "text",
-		Text: prompt,
-	})
 
 	// 构造请求体
 	body := seedanceGenerateReq{
 		Model:   c.model,
 		Content: contents,
 	}
+	if req.AspectRatio != "" {
+		body.Ratio = req.AspectRatio
+	}
+	// body.TaskType = "i2v"
 
 	// 发送 POST 请求
 	var respBody seedanceGenerateResp
