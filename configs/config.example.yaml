@@ -41,3 +41,8 @@ log:
   max_backups: 10
   max_age_days: 7
   compress: true
+
+langsmith:
+  enabled: false
+  api_key: "your-langsmith-api-key"
+  project_name: "videomax"

@@ -8,6 +8,10 @@ import (
 	"path/filepath"
 
 	"github.com/sashabaranov/go-openai"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"video-max/internal/tools"
 	"video-max/pkg/logger"
@@ -40,6 +44,14 @@ func (c *OpenAIClient) Provider() string {
 // Chat 实现 LLMClient 接口
 // 内部使用 go-openai SDK 的类型进行请求，响应后转换为自定义类型返回
 func (c *OpenAIClient) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
+	ctx, span := otel.Tracer("videomax").Start(ctx, "openai.Chat",
+		trace.WithAttributes(
+			attribute.String("gen_ai.operation.name", "chat"),
+			attribute.String("gen_ai.system", "openai"),
+			attribute.String("gen_ai.request.model", c.model),
+			attribute.String("gen_ai.prompt", req.SystemPrompt+"\n"+req.UserMessage),
+		))
+	defer span.End()
 	// 构建 go-openai 消息列表
 	messages := make([]openai.ChatCompletionMessage, 0)
 
@@ -102,6 +114,8 @@ func (c *OpenAIClient) Chat(ctx context.Context, req ChatRequest) (*ChatResponse
 
 	resp, err := c.client.CreateChatCompletion(ctx, chatReq)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("调用 OpenAI API 失败: %w", err)
 	}
 
@@ -136,6 +150,11 @@ func (c *OpenAIClient) Chat(ctx context.Context, req ChatRequest) (*ChatResponse
 		}
 	}
 
+	span.SetAttributes(
+		attribute.String("gen_ai.completion", result.Content),
+		attribute.Int("gen_ai.usage.input_tokens", result.Usage.PromptTokens),
+		attribute.Int("gen_ai.usage.output_tokens", result.Usage.CompletionTokens),
+	)
 	return result, nil
 }
 

@@ -12,6 +12,11 @@ import (
 	"path/filepath"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
 	"video-max/internal/tools"
 	"video-max/pkg/logger"
 )
@@ -189,6 +194,15 @@ func (c *DoubaoClient) Provider() string {
 //   output[type="function_call"] → ChatResponse.ToolCalls
 //   usage                        → ChatResponse.Usage
 func (c *DoubaoClient) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
+	ctx, span := otel.Tracer("videomax").Start(ctx, "doubao.Chat",
+		trace.WithAttributes(
+			attribute.String("gen_ai.operation.name", "chat"),
+			attribute.String("gen_ai.system", "doubao"),
+			attribute.String("gen_ai.request.model", c.model),
+			attribute.String("gen_ai.prompt", req.SystemPrompt+"\n"+req.UserMessage),
+		))
+	defer span.End()
+
 	// 1. 构建 input 消息数组
 	inputMsgs := make([]interface{}, 0)
 
@@ -276,6 +290,8 @@ func (c *DoubaoClient) Chat(ctx context.Context, req ChatRequest) (*ChatResponse
 
 	var respBody doubaoResponse
 	if err := c.doPost(ctx, c.baseURL+doubaoResponsesPath, reqBody, &respBody); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("调用豆包 Responses API 失败: %w", err)
 	}
 
@@ -330,6 +346,11 @@ func (c *DoubaoClient) Chat(ctx context.Context, req ChatRequest) (*ChatResponse
 		"total_tokens", result.Usage.TotalTokens,
 	)
 
+	span.SetAttributes(
+		attribute.String("gen_ai.completion", result.Content),
+		attribute.Int("gen_ai.usage.input_tokens", result.Usage.PromptTokens),
+		attribute.Int("gen_ai.usage.output_tokens", result.Usage.CompletionTokens),
+	)
 	return result, nil
 }
 

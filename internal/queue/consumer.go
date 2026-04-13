@@ -7,6 +7,10 @@ import (
 	"time"
 
 	"github.com/IBM/sarama"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"video-max/internal/domain/entity"
 	"video-max/internal/mas"
@@ -87,6 +91,17 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 func (c *Consumer) processTask(ctx context.Context, msg VideoTaskMessage) error {
 	taskID := msg.TaskID
 
+	// 根 Span：覆盖整个任务生命周期（MAS 流水线 + 视频生成）
+	ctx, rootSpan := otel.Tracer("videomax").Start(ctx, "Task-"+taskID,
+		trace.WithAttributes(
+			attribute.String("gen_ai.operation.name", "chain"),
+			attribute.String("task.id", taskID),
+			attribute.String("user.idea", msg.UserIdea),
+			attribute.String("video.aspect_ratio", msg.AspectRatio),
+			attribute.Int("video.image_count", len(msg.ImagePaths)),
+		))
+	defer rootSpan.End()
+
 	// 任务完成（无论成功/失败）后关闭 SSE 事件通道，通知前端连接结束
 	defer c.emitter.Close(taskID)
 
@@ -112,14 +127,25 @@ func (c *Consumer) processTask(ctx context.Context, msg VideoTaskMessage) error 
 		return fmt.Errorf("更新任务状态失败: %w", err)
 	}
 
+	_, submitSpan := otel.Tracer("videomax").Start(ctx, "VideoGeneration.Submit",
+		trace.WithAttributes(
+			attribute.String("gen_ai.operation.name", "tool"),
+			attribute.String("video.prompt", masResult.FinalPrompts),
+			attribute.Int("video.image_count", len(msg.ImagePaths)),
+		))
 	genResult, err := c.videoFactory.GenerateVideo(ctx, video.GenerateRequest{
 		Prompt:      masResult.FinalPrompts,
 		ImagePaths:  msg.ImagePaths,
 		AspectRatio: msg.AspectRatio,
 	})
 	if err != nil {
+		submitSpan.RecordError(err)
+		submitSpan.SetStatus(codes.Error, err.Error())
+		submitSpan.End()
 		return fmt.Errorf("提交视频生成请求失败: %w", err)
 	}
+	submitSpan.SetAttributes(attribute.String("video.provider_task_id", genResult.ProviderTaskID))
+	submitSpan.End()
 
 	// 5. 轮询视频生成状态（简单实现，后续可优化为 Webhook 回调）
 	logger.Log.Infow("开始轮询视频生成状态",
@@ -127,9 +153,21 @@ func (c *Consumer) processTask(ctx context.Context, msg VideoTaskMessage) error 
 		"provider_task_id", genResult.ProviderTaskID,
 	)
 
+	_, pollSpan := otel.Tracer("videomax").Start(ctx, "VideoGeneration.Poll",
+		trace.WithAttributes(
+			attribute.String("gen_ai.operation.name", "tool"),
+			attribute.String("video.provider_task_id", genResult.ProviderTaskID),
+		))
+	defer pollSpan.End()
+
 	status, err := c.pollVideoStatus(ctx, genResult.ProviderTaskID)
 	if err != nil {
+		pollSpan.RecordError(err)
+		pollSpan.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("轮询视频状态失败: %w", err)
+	}
+	if !status.IsFailed {
+		pollSpan.SetAttributes(attribute.String("video.url", status.VideoURL))
 	}
 
 	if status.IsFailed {

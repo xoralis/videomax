@@ -13,6 +13,11 @@ import (
 	"path/filepath"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
 	"video-max/pkg/logger"
 )
 
@@ -64,20 +69,34 @@ type seedanceGenerateResp struct {
 
 // seedanceQueryResp 查询任务状态的响应体
 type seedanceQueryResp struct {
-	ID     string `json:"id"`
-	Status string `json:"status"` // queued / running / succeeded / failed / cancelled
+	ID     string `json:"id,omitempty"`     // 任务 ID
+	Model  string `json:"model,omitempty"`  // 模型 ID
+	Status string `json:"status,omitempty"` // queued / running / succeeded / failed / cancelled
 	Error  *struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
+		Param   string `json:"param,omitempty"`
+		Type    string `json:"type,omitempty"`
 	} `json:"error,omitempty"`
-	Choices []struct {
-		Message struct {
-			Content []struct {
-				Type     string `json:"type"`
-				VideoURL string `json:"video_url,omitempty"` // type=video_url 时有值
-			} `json:"content"`
-		} `json:"message"`
-	} `json:"choices,omitempty"`
+
+	Content *struct {
+		VideoURL string `json:"video_url"` // 生成成功时的视频 URL
+	} `json:"content"`
+	Usage struct {
+		CompletionTokens int `json:"completion_tokens"`
+		TotalTokens      int `json:"total_tokens"`
+	} `json:"usage,omitempty"`
+	CreatedAt             int64   `json:"created_at,omitempty"`
+	UpdatedAt             int64   `json:"updated_at,omitempty"`
+	Seed                  int     `json:"seed,omitempty"`
+	Resolution            string  `json:"resolution,omitempty"`
+	Ratio                 string  `json:"ratio,omitempty"`
+	Duration              float64 `json:"duration,omitempty"`
+	FramesPerSecond       float64 `json:"frames_per_second,omitempty"`
+	ServiceTier           string  `json:"service_tier,omitempty"`
+	ExecutionExpiresAfter int     `json:"execution_expires_after,omitempty"`
+	GenerateAudio         bool    `json:"generate_audio,omitempty"`
+	Draft                 bool    `json:"draft,omitempty"`
 }
 
 // ---- 客户端实现 ----
@@ -118,6 +137,17 @@ func (c *ByteDanceClient) Name() string {
 // 3. POST 到 /contents/generations/tasks
 // 4. 返回 task_id 供后续轮询
 func (c *ByteDanceClient) GenerateVideo(ctx context.Context, req GenerateRequest) (*GenerateResult, error) {
+	ctx, span := otel.Tracer("videomax").Start(ctx, "bytedance.GenerateVideo",
+		trace.WithAttributes(
+			attribute.String("gen_ai.operation.name", "tool"),
+			attribute.String("video.provider", ProviderByteDance),
+			attribute.String("video.model", c.model),
+			attribute.String("gen_ai.prompt", req.Prompt),
+			attribute.Int("video.image_count", len(req.ImagePaths)),
+			attribute.String("video.aspect_ratio", req.AspectRatio),
+		))
+	defer span.End()
+
 	logger.Log.Infow("Seedance: 开始提交视频生成任务",
 		"model", c.model,
 		"prompt_length", len(req.Prompt),
@@ -163,6 +193,8 @@ func (c *ByteDanceClient) GenerateVideo(ctx context.Context, req GenerateRequest
 	// 发送 POST 请求
 	var respBody seedanceGenerateResp
 	if err := c.doRequest(ctx, http.MethodPost, c.baseURL+seedanceGeneratePath, body, &respBody); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("Seedance 提交任务请求失败: %w", err)
 	}
 
@@ -179,6 +211,7 @@ func (c *ByteDanceClient) GenerateVideo(ctx context.Context, req GenerateRequest
 		"status", respBody.Status,
 	)
 
+	span.SetAttributes(attribute.String("video.provider_task_id", respBody.ID))
 	return &GenerateResult{
 		ProviderTaskID:   respBody.ID,
 		EstimatedWaitSec: 120, // Seedance 通常 1-3 分钟
@@ -193,11 +226,21 @@ func (c *ByteDanceClient) GenerateVideo(ctx context.Context, req GenerateRequest
 //   - failed   : 生成失败，从 error 字段读取原因
 //   - cancelled: 已取消
 func (c *ByteDanceClient) CheckStatus(ctx context.Context, providerTaskID string) (*TaskStatus, error) {
+	ctx, span := otel.Tracer("videomax").Start(ctx, "bytedance.CheckStatus",
+		trace.WithAttributes(
+			attribute.String("gen_ai.operation.name", "tool"),
+			attribute.String("video.provider", ProviderByteDance),
+			attribute.String("video.provider_task_id", providerTaskID),
+		))
+	defer span.End()
+
 	logger.Log.Infow("Seedance: 查询任务状态", "provider_task_id", providerTaskID)
 
 	url := fmt.Sprintf(c.baseURL+seedanceQueryPath, providerTaskID)
 	var respBody seedanceQueryResp
 	if err := c.doRequest(ctx, http.MethodGet, url, nil, &respBody); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("Seedance 查询任务状态请求失败: %w", err)
 	}
 
@@ -208,6 +251,10 @@ func (c *ByteDanceClient) CheckStatus(ctx context.Context, providerTaskID string
 		logger.Log.Infow("Seedance: 视频生成成功",
 			"provider_task_id", providerTaskID,
 			"video_url", videoURL,
+		)
+		span.SetAttributes(
+			attribute.String("video.status", "succeeded"),
+			attribute.String("video.url", videoURL),
 		)
 		return &TaskStatus{
 			IsFinished: true,
@@ -225,6 +272,8 @@ func (c *ByteDanceClient) CheckStatus(ctx context.Context, providerTaskID string
 			"status", respBody.Status,
 			"error", errMsg,
 		)
+		span.SetAttributes(attribute.String("video.status", respBody.Status))
+		span.SetStatus(codes.Error, errMsg)
 		return &TaskStatus{
 			IsFinished: true,
 			IsFailed:   true,
@@ -237,6 +286,7 @@ func (c *ByteDanceClient) CheckStatus(ctx context.Context, providerTaskID string
 			"provider_task_id", providerTaskID,
 			"status", respBody.Status,
 		)
+		span.SetAttributes(attribute.String("video.status", respBody.Status))
 		return &TaskStatus{
 			IsFinished: false,
 			IsFailed:   false,
@@ -319,15 +369,10 @@ func imageToBase64URI(filePath string) (string, error) {
 
 // extractVideoURL 从 Seedance 查询响应中提取视频 URL
 func extractVideoURL(resp seedanceQueryResp) string {
-	if len(resp.Choices) == 0 {
+	if resp.Content == nil || resp.Content.VideoURL == "" {
 		return ""
 	}
-	for _, c := range resp.Choices[0].Message.Content {
-		if c.Type == "video_url" && c.VideoURL != "" {
-			return c.VideoURL
-		}
-	}
-	return ""
+	return resp.Content.VideoURL
 }
 
 // 以下为兼容占位，实际未使用但预留给带 assets 接口的扩展

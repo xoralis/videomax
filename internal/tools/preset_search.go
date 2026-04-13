@@ -4,6 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // PresetSearchTool 最佳实践查询工具
@@ -64,22 +69,35 @@ func (t *PresetSearchTool) ParametersSchema() string {
 
 // Execute 执行查询操作，返回对应供应商和类别的最佳实践文本
 func (t *PresetSearchTool) Execute(ctx context.Context, argsJSON string) (string, error) {
+	_, span := otel.Tracer("videomax").Start(ctx, "search_best_practices",
+		trace.WithAttributes(
+			attribute.String("gen_ai.operation.name", "tool"),
+			attribute.String("gen_ai.tool.name", "search_best_practices"),
+			attribute.String("gen_ai.prompt", argsJSON),
+		))
+	defer span.End()
+
 	var params presetSearchParams
 	if err := json.Unmarshal([]byte(argsJSON), &params); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return "", fmt.Errorf("解析工具参数失败: %w", err)
 	}
 
 	// 查找供应商规则
 	categories, ok := providerPresets[params.Provider]
 	if !ok {
-		return fmt.Sprintf("未找到供应商 '%s' 的预设规则。当前支持的供应商: bytedance, kling", params.Provider), nil
+		result := fmt.Sprintf("未找到供应商 '%s' 的预设规则。当前支持的供应商: bytedance, kling", params.Provider)
+		span.SetAttributes(attribute.String("gen_ai.completion", result))
+		return result, nil
 	}
 
 	// 查找具体类别
 	result, ok := categories[params.Category]
 	if !ok {
-		return fmt.Sprintf("供应商 '%s' 下未找到类别 '%s'。可用类别: resolution, duration, style, camera, best_practice", params.Provider, params.Category), nil
+		result = fmt.Sprintf("供应商 '%s' 下未找到类别 '%s'。可用类别: resolution, duration, style, camera, best_practice", params.Provider, params.Category)
 	}
 
+	span.SetAttributes(attribute.String("gen_ai.completion", result))
 	return result, nil
 }

@@ -6,7 +6,9 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	langsmith "github.com/langchain-ai/langsmith-go"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 
@@ -39,7 +41,25 @@ func main() {
 		fmt.Fprintf(os.Stderr, "初始化日志失败: %v\n", err)
 		os.Exit(1)
 	}
-	logger.Log.Info("🚀 videoMax 多智能体视频生成系统启动中...")
+	logger.Log.Info("videoMax 多智能体视频生成系统启动中...")
+
+	// ==================== 2.5. 初始化 LangSmith 链路追踪（OTel 全局 TracerProvider） ====================
+	if cfg.LangSmith.Enabled {
+		otelTracer, err := langsmith.NewOTelTracer(
+			langsmith.WithAPIKey(cfg.LangSmith.APIKey),
+			langsmith.WithProjectName(cfg.LangSmith.ProjectName),
+		)
+		if err != nil {
+			logger.Log.Warnw("LangSmith 链路追踪初始化失败", "error", err)
+		} else {
+			defer func() {
+				shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				_ = otelTracer.Shutdown(shutdownCtx)
+			}()
+			logger.Log.Infow("LangSmith 链路追踪已启动", "project", cfg.LangSmith.ProjectName)
+		}
+	}
 
 	// ==================== 3. 初始化 MySQL 数据库连接 ====================
 	db, err := gorm.Open(mysql.Open(cfg.MySQL.DSN), &gorm.Config{})

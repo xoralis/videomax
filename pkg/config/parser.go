@@ -9,13 +9,14 @@ import (
 
 // AppConfig 应用的顶层配置结构体，与 config.yaml 中的字段一一映射
 type AppConfig struct {
-	Server  ServerConfig  `yaml:"server"`
-	MySQL   MySQLConfig   `yaml:"mysql"`
-	Kafka   KafkaConfig   `yaml:"kafka"`
-	LLM     LLMConfig     `yaml:"llm"`
-	Video   VideoConfig   `yaml:"video"`
-	Storage StorageConfig `yaml:"storage"`
-	Log     LogConfig     `yaml:"log"`
+	Server    ServerConfig    `yaml:"server"`
+	MySQL     MySQLConfig     `yaml:"mysql"`
+	Kafka     KafkaConfig     `yaml:"kafka"`
+	LLM       LLMConfig       `yaml:"llm"`
+	Video     VideoConfig     `yaml:"video"`
+	Storage   StorageConfig   `yaml:"storage"`
+	Log       LogConfig       `yaml:"log"`
+	LangSmith LangSmithConfig `yaml:"langsmith"`
 }
 
 // ServerConfig HTTP 服务相关配置
@@ -54,6 +55,13 @@ type VideoConfig struct {
 // StorageConfig 本地文件存储路径配置
 type StorageConfig struct {
 	UploadDir string `yaml:"upload_dir"` // 用户上传的参考图片存放目录
+}
+
+// LangSmithConfig LangSmith 链路追踪配置
+type LangSmithConfig struct {
+	Enabled     bool   `yaml:"enabled"`      // 是否启用 LangSmith 链路追踪
+	APIKey      string `yaml:"api_key"`      // LangSmith API Key
+	ProjectName string `yaml:"project_name"` // LangSmith 项目名称
 }
 
 // LogConfig 日志配置

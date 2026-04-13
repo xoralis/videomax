@@ -15,6 +15,11 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
 	"video-max/pkg/logger"
 )
 
@@ -154,6 +159,17 @@ func (c *KlingClient) Name() string {
 //  3. POST 到 /videos/image2video
 //  4. 返回 task_id 供后续轮询
 func (c *KlingClient) GenerateVideo(ctx context.Context, req GenerateRequest) (*GenerateResult, error) {
+	ctx, span := otel.Tracer("videomax").Start(ctx, "kling.GenerateVideo",
+		trace.WithAttributes(
+			attribute.String("gen_ai.operation.name", "tool"),
+			attribute.String("video.provider", ProviderKling),
+			attribute.String("video.model", c.model),
+			attribute.String("gen_ai.prompt", req.Prompt),
+			attribute.Int("video.image_count", len(req.ImagePaths)),
+			attribute.String("video.aspect_ratio", req.AspectRatio),
+		))
+	defer span.End()
+
 	logger.Log.Infow("可灵: 开始提交图生视频任务",
 		"model", c.model,
 		"prompt_length", len(req.Prompt),
@@ -211,6 +227,8 @@ func (c *KlingClient) GenerateVideo(ctx context.Context, req GenerateRequest) (*
 	// 发送请求
 	var apiResp klingAPIResponse
 	if err := c.doRequest(ctx, http.MethodPost, c.baseURL+reqPath, klingReq, &apiResp); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("可灵提交任务请求失败: %w", err)
 	}
 
@@ -233,6 +251,17 @@ func (c *KlingClient) GenerateVideo(ctx context.Context, req GenerateRequest) (*
 		"status", taskData.TaskStatus,
 	)
 
+	videoMode := "text"
+	if len(req.ImagePaths) > 1 {
+		videoMode = "multi"
+	} else if len(req.ImagePaths) == 1 {
+		videoMode = "single"
+	}
+	span.SetAttributes(
+		attribute.String("video.provider_task_id", taskPrefix+taskData.TaskID),
+		attribute.String("video.mode", videoMode),
+	)
+
 	// 修改了 task_id 存储方式，前缀用来供 CheckStatus 判断轮询哪个接口
 	return &GenerateResult{
 		ProviderTaskID:   taskPrefix + taskData.TaskID,
@@ -247,6 +276,14 @@ func (c *KlingClient) GenerateVideo(ctx context.Context, req GenerateRequest) (*
 //   - succeed    : 生成成功，从 task_result.videos[0].url 获取视频链接
 //   - failed     : 生成失败，从 task_status_msg 读取原因
 func (c *KlingClient) CheckStatus(ctx context.Context, providerTaskID string) (*TaskStatus, error) {
+	ctx, span := otel.Tracer("videomax").Start(ctx, "kling.CheckStatus",
+		trace.WithAttributes(
+			attribute.String("gen_ai.operation.name", "tool"),
+			attribute.String("video.provider", ProviderKling),
+			attribute.String("video.provider_task_id", providerTaskID),
+		))
+	defer span.End()
+
 	logger.Log.Infow("可灵: 查询任务状态", "provider_task_id", providerTaskID)
 
 	realTaskID := providerTaskID
@@ -263,6 +300,8 @@ func (c *KlingClient) CheckStatus(ctx context.Context, providerTaskID string) (*
 	url := fmt.Sprintf(c.baseURL+reqPath, realTaskID)
 	var apiResp klingAPIResponse
 	if err := c.doRequest(ctx, http.MethodGet, url, nil, &apiResp); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("可灵查询任务状态请求失败: %w", err)
 	}
 
@@ -285,6 +324,10 @@ func (c *KlingClient) CheckStatus(ctx context.Context, providerTaskID string) (*
 			"provider_task_id", providerTaskID,
 			"video_url", videoURL,
 		)
+		span.SetAttributes(
+			attribute.String("video.status", "succeed"),
+			attribute.String("video.url", videoURL),
+		)
 		return &TaskStatus{
 			IsFinished: true,
 			IsFailed:   false,
@@ -300,6 +343,8 @@ func (c *KlingClient) CheckStatus(ctx context.Context, providerTaskID string) (*
 			"provider_task_id", providerTaskID,
 			"error", errMsg,
 		)
+		span.SetAttributes(attribute.String("video.status", "failed"))
+		span.SetStatus(codes.Error, errMsg)
 		return &TaskStatus{
 			IsFinished: true,
 			IsFailed:   true,
@@ -312,6 +357,7 @@ func (c *KlingClient) CheckStatus(ctx context.Context, providerTaskID string) (*
 			"provider_task_id", providerTaskID,
 			"status", taskData.TaskStatus,
 		)
+		span.SetAttributes(attribute.String("video.status", taskData.TaskStatus))
 		return &TaskStatus{
 			IsFinished: false,
 			IsFailed:   false,
