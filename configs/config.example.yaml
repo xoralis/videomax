@@ -29,6 +29,10 @@ video:
       provider: "kling"
       api_key: "your-access-key:your-secret-key"  # AK:SK 用冒号拼接
       base_url: ""
+    - name: "hunyuan-video"                           # 混元视频生成（图生视频）
+      provider: "hunyuan"
+      api_key: "your-secret-id:your-secret-key"       # 腾讯云 SecretId:SecretKey，用冒号拼接
+      base_url: ""                                     # 固定使用 vclm.tencentcloudapi.com，此字段忽略
 
 storage:
   upload_dir: "./uploads"

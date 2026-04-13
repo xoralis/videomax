@@ -18,6 +18,7 @@ export default function CreateForm({ onTaskCreated }) {
   const models = [
     { value: 'doubao-seedance-1-0-pro-250528', label: 'Doubao Seedance Pro' },
     { value: 'kling-v1-6', label: 'Kling v1.6' },
+    { value: 'hunyuan-video', label: 'Hunyuan Video' },
   ];
 
   const durations = [5, 10];

@@ -6,7 +6,7 @@ type VideoCreateRequest struct {
 	Idea        string   `form:"idea" binding:"required"`                                              // 用户输入的创意文本（必填）
 	AspectRatio string   `form:"aspect_ratio" binding:"oneof=16:9 9:16 1:1 4:3 3:4"`                  // 画面比例（强制枚举校验）
 	Duration    int      `form:"duration" binding:"required,oneof=5 10"`                               // 期望视频时长（秒），支持 5 或 10
-	Model       string   `form:"model" binding:"required,oneof=doubao-seedance-1-0-pro-250528 kling-v1-6"` // 视频生成模型标识
+	Model       string   `form:"model" binding:"required,oneof=doubao-seedance-1-0-pro-250528 kling-v1-6 hunyuan-video"` // 视频生成模型标识
 	ImagePaths  []string `form:"-"`                                                                    // 由 Handler 解析 multipart 文件后填充的本地路径列表（不从表单直接绑定）
 }
 

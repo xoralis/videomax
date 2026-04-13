@@ -10,6 +10,7 @@ import (
 const (
 	ProviderByteDance = "bytedance"
 	ProviderKling     = "kling"
+	ProviderHunyuan   = "hunyuan"
 )
 
 // VideoFactory 持有全部已注册的视频生成 Provider
@@ -52,7 +53,9 @@ func newVideoProvider(providerName string, apiKey string, baseURL string, model 
 		return NewByteDanceClient(apiKey, baseURL, model), nil
 	case ProviderKling:
 		return NewKlingClient(apiKey, baseURL, model), nil
+	case ProviderHunyuan:
+		return NewHunyuanClient(apiKey, baseURL, model), nil
 	default:
-		return nil, fmt.Errorf("不支持的视频服务提供商: %s，当前支持: %s, %s", providerName, ProviderByteDance, ProviderKling)
+		return nil, fmt.Errorf("不支持的视频服务提供商: %s，当前支持: %s, %s, %s", providerName, ProviderByteDance, ProviderKling, ProviderHunyuan)
 	}
 }
