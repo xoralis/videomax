@@ -8,28 +8,40 @@ import (
 )
 
 // SetupRouter 初始化并注册所有 HTTP 路由
-// 将 Handler 与具体的 URL 路径绑定
-func SetupRouter(videoHandler *handler.VideoHandler, sseHandler *handler.SSEHandler) *gin.Engine {
-	// 生产模式下关闭 Gin 的调试日志
+func SetupRouter(
+	videoHandler *handler.VideoHandler,
+	sseHandler *handler.SSEHandler,
+	authHandler *handler.AuthHandler,
+	historyHandler *handler.HistoryHandler,
+	jwtSecret string,
+) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 
 	r := gin.New()
+	r.Use(gin.Recovery())
+	r.Use(middleware.CORS())
 
-	// 全局中间件
-	r.Use(gin.Recovery())   // 捕获 panic 防止服务崩溃
-	r.Use(middleware.CORS()) // 跨域支持
-
-	// API 路由组
 	apiGroup := r.Group("/api")
 	{
-		// POST /api/video - 提交视频生成任务（图文上传）
-		apiGroup.POST("/video", videoHandler.CreateVideo)
+		// 公开路由：注册 / 登录
+		authGroup := apiGroup.Group("/auth")
+		{
+			authGroup.POST("/register", authHandler.Register)
+			authGroup.POST("/login", authHandler.Login)
+		}
 
-		// GET /api/task/:id - 轮询视频生成任务状态
-		apiGroup.GET("/task/:id", videoHandler.QueryTask)
+		// 需要 JWT 认证的路由
+		protected := apiGroup.Group("", middleware.Auth(jwtSecret))
+		{
+			// 视频任务
+			protected.POST("/video", videoHandler.CreateVideo)
+			protected.GET("/task/:id", videoHandler.QueryTask)
+			protected.GET("/events/:taskId", sseHandler.StreamEvents)
 
-		// GET /api/events/:taskId - SSE 实时推送 Agent 协作进度
-		apiGroup.GET("/events/:taskId", sseHandler.StreamEvents)
+			// 历史记录 & 统计
+			protected.GET("/tasks", historyHandler.ListTasks)
+			protected.GET("/stats", historyHandler.GetStats)
+		}
 	}
 
 	return r

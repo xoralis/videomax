@@ -20,8 +20,9 @@ const (
 // 记录了一个视频生成请求从创建到完成的全部关键信息
 type Task struct {
 	ID             string    `gorm:"primaryKey;type:varchar(36)" json:"id"`          // UUID 主键
-	UserID         string    `gorm:"index;type:varchar(64)" json:"user_id"`          // 用户标识（预留）
+	UserID         string    `gorm:"index;type:varchar(64)" json:"user_id"`          // 用户标识
 	Type           string    `gorm:"type:varchar(10)" json:"type"`                   // 任务类型: t2v(纯文生视频) / i2v(图生视频)
+	Model          string    `gorm:"type:varchar(100)" json:"model"`                 // 使用的视频生成模型标识
 	OriginalIdea   string    `gorm:"type:text" json:"original_idea"`                 // 用户原始输入的文本描述
 	InputImages    string    `gorm:"type:text" json:"input_images"`                  // 用户上传的参考图片路径列表 (JSON 数组格式)
 	EnhancedPrompt string    `gorm:"type:text" json:"enhanced_prompt"`               // MAS 多智能体协作后生成的最终专业提示词

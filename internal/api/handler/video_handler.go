@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	"video-max/internal/api/middleware"
 	"video-max/internal/domain/dto"
 	"video-max/internal/domain/entity"
 	"video-max/internal/queue"
@@ -83,9 +84,15 @@ func (h *VideoHandler) CreateVideo(c *gin.Context) {
 		taskType = "i2v" // 有参考图则为图生视频
 	}
 
+	// 从 JWT 中间件注入的 context 获取用户 ID
+	userID, _ := c.Get(middleware.ContextUserIDKey)
+	userIDStr, _ := userID.(string)
+
 	task := &entity.Task{
 		ID:           taskID,
+		UserID:       userIDStr,
 		Type:         taskType,
+		Model:        req.Model,
 		OriginalIdea: req.Idea,
 		InputImages:  fmt.Sprintf("%v", savedPaths), // 简单序列化路径列表
 		Status:       entity.TaskStatusPending,

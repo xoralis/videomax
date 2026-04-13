@@ -17,6 +17,7 @@ type AppConfig struct {
 	Storage   StorageConfig   `yaml:"storage"`
 	Log       LogConfig       `yaml:"log"`
 	LangSmith LangSmithConfig `yaml:"langsmith"`
+	JWT       JWTConfig       `yaml:"jwt"`
 }
 
 // ServerConfig HTTP 服务相关配置
@@ -60,6 +61,12 @@ type VideoConfig struct {
 // StorageConfig 本地文件存储路径配置
 type StorageConfig struct {
 	UploadDir string `yaml:"upload_dir"` // 用户上传的参考图片存放目录
+}
+
+// JWTConfig JWT 认证配置
+type JWTConfig struct {
+	Secret     string `yaml:"secret"`      // 签名密钥
+	ExpireDays int    `yaml:"expire_days"` // Token 有效天数，默认 7
 }
 
 // LangSmithConfig LangSmith 链路追踪配置

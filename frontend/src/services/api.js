@@ -1,4 +1,5 @@
 // services/api.js
+import { authFetch } from './authService';
 
 /**
  * 提交视频生成任务
@@ -19,7 +20,7 @@ export async function createVideoTask(idea, images, aspectRatio, model, duration
     formData.append('images', img);
   });
 
-  const res = await fetch('/api/video', {
+  const res = await authFetch('/api/video', {
     method: 'POST',
     body: formData,
   });
@@ -37,7 +38,7 @@ export async function createVideoTask(idea, images, aspectRatio, model, duration
  * @param {string} taskId 
  */
 export async function pollTaskStatus(taskId) {
-  const res = await fetch(`/api/task/${taskId}`);
+  const res = await authFetch(`/api/task/${taskId}`);
   
   if (!res.ok) {
     throw new Error('网络异常，查询状态失败');

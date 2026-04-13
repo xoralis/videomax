@@ -67,13 +67,14 @@ func main() {
 		logger.Log.Fatalw("MySQL 连接失败", "error", err)
 	}
 	// 自动迁移数据库表结构
-	if err := db.AutoMigrate(&entity.Task{}); err != nil {
+	if err := db.AutoMigrate(&entity.Task{}, &entity.User{}); err != nil {
 		logger.Log.Fatalw("数据库迁移失败", "error", err)
 	}
 	logger.Log.Info("MySQL 连接成功，表结构已同步")
 
 	// ==================== 4. 初始化 Repository 层 ====================
 	taskRepo := repository.NewMySQLTaskRepo(db)
+	userRepo := repository.NewMySQLUserRepo(db)
 
 	// ==================== 5. 初始化 LLM 客户端（工厂模式：支持 OpenAI / 豆包） ====================
 	llm := llmclient.NewLLMClient(cfg.LLM.Provider, cfg.LLM.APIKey, cfg.LLM.BaseURL, cfg.LLM.Model)
@@ -155,7 +156,9 @@ func main() {
 	// ==================== 11. 初始化 HTTP 路由并启动 Web 服务 ====================
 	videoHandler := handler.NewVideoHandler(taskRepo, producer, cfg.Storage.UploadDir)
 	sseHandler := handler.NewSSEHandler(eventEmitter)
-	router := api.SetupRouter(videoHandler, sseHandler)
+	authHandler := handler.NewAuthHandler(userRepo, cfg.JWT.Secret, cfg.JWT.ExpireDays)
+	historyHandler := handler.NewHistoryHandler(taskRepo)
+	router := api.SetupRouter(videoHandler, sseHandler, authHandler, historyHandler, cfg.JWT.Secret)
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
 	logger.Log.Infow("🎬 videoMax HTTP 服务已就绪", "addr", addr)

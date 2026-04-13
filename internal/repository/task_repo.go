@@ -6,6 +6,15 @@ import (
 	"video-max/internal/domain/entity"
 )
 
+// TaskStats 用户任务使用统计
+type TaskStats struct {
+	Total           int64            `json:"total"`
+	SuccessCount    int64            `json:"success_count"`
+	FailedCount     int64            `json:"failed_count"`
+	InProgressCount int64            `json:"in_progress_count"`
+	ModelDist       map[string]int64 `json:"model_distribution"`
+}
+
 // TaskRepository 任务数据存储层的抽象接口
 // 上层业务逻辑（如 Orchestrator、Handler）只依赖此接口，不关心底层是 MySQL、SQLite 还是其他存储
 // 这使得我们可以在不修改业务代码的情况下更换数据库实现
@@ -27,4 +36,10 @@ type TaskRepository interface {
 
 	// MarkFailed 标记任务为失败状态，并记录错误信息
 	MarkFailed(ctx context.Context, id string, errMsg string) error
+
+	// ListByUserID 分页查询指定用户的任务列表，按创建时间倒序
+	ListByUserID(ctx context.Context, userID string, offset, limit int) ([]*entity.Task, int64, error)
+
+	// GetUserStats 查询指定用户的任务使用统计
+	GetUserStats(ctx context.Context, userID string) (*TaskStats, error)
 }
