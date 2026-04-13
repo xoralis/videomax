@@ -105,6 +105,8 @@ func (h *VideoHandler) CreateVideo(c *gin.Context) {
 		UserIdea:    req.Idea,
 		ImagePaths:  savedPaths,
 		AspectRatio: req.AspectRatio,
+		Duration:    req.Duration,
+		Model:       req.Model,
 	}
 
 	if err := h.producer.PublishVideoTask(kafkaMsg); err != nil {

@@ -34,7 +34,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "加载配置失败: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("配置加载成功, port: %d, video_provider: %s\n", cfg.Server.Port, cfg.Video.Provider)
+	fmt.Printf("配置加载成功, port: %d, video_providers: %d\n", cfg.Server.Port, len(cfg.Video.Providers))
 
 	// ==================== 2. 初始化日志系统 ====================
 	if err := logger.Init(cfg.Log); err != nil {
@@ -107,12 +107,12 @@ func main() {
 
 	logger.Log.Info("MAS 多智能体 Orchestrator 组装完成 (Story → Character → Storyboard → Visual ↔ Critic)")
 
-	// ==================== 8. 初始化视频服务提供商 (工厂模式) ====================
-	videoProvider, err := video.NewVideoProvider(cfg.Video.Provider, cfg.Video.APIKey, cfg.Video.BaseURL, cfg.Video.Model)
+	// ==================== 8. 初始化视频服务工厂（支持多 Provider）====================
+	videoFactory, err := video.NewVideoFactory(cfg.Video.Providers)
 	if err != nil {
-		logger.Log.Fatalw("视频服务提供商初始化失败", "error", err)
+		logger.Log.Fatalw("视频服务工厂初始化失败", "error", err)
 	}
-	logger.Log.Infow("视频服务提供商初始化完成", "provider", videoProvider.Name())
+	logger.Log.Infow("视频服务工厂初始化完成", "provider_count", len(cfg.Video.Providers))
 
 	// ==================== 9. 初始化 Kafka 生产者与消费者 ====================
 	kafkaProducer, err := kafkapkg.NewSyncProducer(cfg.Kafka.Brokers)
@@ -122,7 +122,7 @@ func main() {
 	defer kafkaProducer.Close()
 
 	producer := queue.NewProducer(kafkaProducer, cfg.Kafka.Topic)
-	consumer := queue.NewConsumer(orchestrator, taskRepo, videoProvider, eventEmitter)
+	consumer := queue.NewConsumer(orchestrator, taskRepo, videoFactory, eventEmitter)
 
 	// 启动 Kafka 消费者协程（后台持续监听 Topic）
 	kafkaConsumerGroup, err := kafkapkg.NewConsumerGroup(cfg.Kafka.Brokers, cfg.Kafka.GroupID)

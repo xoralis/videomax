@@ -5,11 +5,15 @@
  * @param {string} idea 
  * @param {File[]} images 
  * @param {string} aspectRatio 
+ * @param {string} model 视频生成模型，如 doubao-seedance-1-0-pro-250528
+ * @param {number} duration 视频时长（秒），5 或 10
  */
-export async function createVideoTask(idea, images, aspectRatio) {
+export async function createVideoTask(idea, images, aspectRatio, model, duration) {
   const formData = new FormData();
   formData.append('idea', idea);
   formData.append('aspect_ratio', aspectRatio);
+  formData.append('model', model);
+  formData.append('duration', String(duration));
   
   images.forEach((img) => {
     formData.append('images', img);

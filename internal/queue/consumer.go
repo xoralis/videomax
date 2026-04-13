@@ -23,16 +23,16 @@ import (
 type Consumer struct {
 	orchestrator *mas.Orchestrator         // 多智能体调度器
 	taskRepo     repository.TaskRepository // 任务存储层
-	videoFactory video.VideoProvider       // 视频生成服务提供商
+	videoFactory *video.VideoFactory       // 视频生成服务工厂（支持按模型选择 Provider）
 	emitter      *mas.EventEmitter         // SSE 事件发射器
 }
 
 // NewConsumer 创建 Kafka 消费者实例
-func NewConsumer(orch *mas.Orchestrator, repo repository.TaskRepository, vp video.VideoProvider, emitter *mas.EventEmitter) *Consumer {
+func NewConsumer(orch *mas.Orchestrator, repo repository.TaskRepository, vf *video.VideoFactory, emitter *mas.EventEmitter) *Consumer {
 	return &Consumer{
 		orchestrator: orch,
 		taskRepo:     repo,
-		videoFactory: vp,
+		videoFactory: vf,
 		emitter:      emitter,
 	}
 }
@@ -122,9 +122,14 @@ func (c *Consumer) processTask(ctx context.Context, msg VideoTaskMessage) error 
 		return fmt.Errorf("保存增强提示词失败: %w", err)
 	}
 
-	// 4. 更新状态为「生成中」，并提交给视频大厂 API
+	// 4. 更新状态为「生成中」，并按模型名称选取视频 Provider 提交任务
 	if err := c.taskRepo.UpdateStatus(ctx, taskID, entity.TaskStatusGenerating); err != nil {
 		return fmt.Errorf("更新任务状态失败: %w", err)
+	}
+
+	provider, err := c.videoFactory.GetProvider(msg.Model)
+	if err != nil {
+		return fmt.Errorf("获取视频Provider失败: %w", err)
 	}
 
 	_, submitSpan := otel.Tracer("videomax").Start(ctx, "VideoGeneration.Submit",
@@ -133,10 +138,11 @@ func (c *Consumer) processTask(ctx context.Context, msg VideoTaskMessage) error 
 			attribute.String("video.prompt", masResult.FinalPrompts),
 			attribute.Int("video.image_count", len(msg.ImagePaths)),
 		))
-	genResult, err := c.videoFactory.GenerateVideo(ctx, video.GenerateRequest{
+	genResult, err := provider.GenerateVideo(ctx, video.GenerateRequest{
 		Prompt:      masResult.FinalPrompts,
 		ImagePaths:  msg.ImagePaths,
 		AspectRatio: msg.AspectRatio,
+		Duration:    msg.Duration,
 	})
 	if err != nil {
 		submitSpan.RecordError(err)
@@ -160,7 +166,7 @@ func (c *Consumer) processTask(ctx context.Context, msg VideoTaskMessage) error 
 		))
 	defer pollSpan.End()
 
-	status, err := c.pollVideoStatus(ctx, genResult.ProviderTaskID)
+	status, err := c.pollVideoStatus(ctx, provider, genResult.ProviderTaskID)
 	if err != nil {
 		pollSpan.RecordError(err)
 		pollSpan.SetStatus(codes.Error, err.Error())
@@ -187,7 +193,7 @@ func (c *Consumer) processTask(ctx context.Context, msg VideoTaskMessage) error 
 }
 
 // pollVideoStatus 轮询视频生成状态
-func (c *Consumer) pollVideoStatus(ctx context.Context, providerTaskID string) (*video.TaskStatus, error) {
+func (c *Consumer) pollVideoStatus(ctx context.Context, provider video.VideoProvider, providerTaskID string) (*video.TaskStatus, error) {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 	timeout := time.After(10 * time.Minute)
@@ -199,7 +205,7 @@ func (c *Consumer) pollVideoStatus(ctx context.Context, providerTaskID string) (
 		case <-timeout:
 			return nil, fmt.Errorf("轮询超时（10分钟）")
 		case <-ticker.C:
-			status, err := c.videoFactory.CheckStatus(ctx, providerTaskID)
+			status, err := provider.CheckStatus(ctx, providerTaskID)
 			if err != nil {
 				logger.Log.Warnw("轮询查询失败，稍后重试", "error", err)
 				continue

@@ -15,8 +15,8 @@ type GenerateRequest struct {
 	// AspectRatio 视频画面比例，如 "16:9" 或 "9:16"
 	AspectRatio string
 
-	// Length 期望的视频时长（秒）
-	Length int
+	// Duration 期望的视频时长（秒），支持 5 或 10
+	Duration int
 }
 
 // GenerateResult 视频生成请求提交后的响应结构

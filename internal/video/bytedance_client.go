@@ -188,6 +188,9 @@ func (c *ByteDanceClient) GenerateVideo(ctx context.Context, req GenerateRequest
 	if req.AspectRatio != "" {
 		body.Ratio = req.AspectRatio
 	}
+	if req.Duration > 0 {
+		body.Duration = float64(req.Duration)
+	}
 	// body.TaskType = "i2v"
 
 	// 发送 POST 请求

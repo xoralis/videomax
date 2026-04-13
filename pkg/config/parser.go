@@ -44,12 +44,17 @@ type LLMConfig struct {
 	BaseURL  string `yaml:"base_url"`
 }
 
-// VideoConfig 视频生成服务商的配置
-type VideoConfig struct {
-	Provider string `yaml:"provider"` // 当前使用的服务商标识（如 bytedance, kling）
+// VideoProviderConfig 单个视频生成服务商的配置
+type VideoProviderConfig struct {
+	Name     string `yaml:"name"`     // 模型标识名，同时作为前端选择时的 key（如 doubao-seedance-1-0-pro-250528）
+	Provider string `yaml:"provider"` // 服务商类型标识（bytedance / kling）
 	APIKey   string `yaml:"api_key"`
-	BaseURL  string `yaml:"base_url"`
-	Model    string `yaml:"model"` // 大模型 ID，如 doubao-seedance-2-0-260128
+	BaseURL  string `yaml:"base_url"` // 留空使用各服务商默认地址
+}
+
+// VideoConfig 视频生成服务商配置，支持多个 Provider 并行注册
+type VideoConfig struct {
+	Providers []VideoProviderConfig `yaml:"providers"`
 }
 
 // StorageConfig 本地文件存储路径配置

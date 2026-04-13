@@ -1,17 +1,26 @@
-import React, { useState } from 'react';
 import { Play } from 'lucide-react';
-import ImageDropzone from './ImageDropzone';
+import { useState } from 'react';
 import { cn } from '../lib/utils';
 import { createVideoTask } from '../services/api';
+import ImageDropzone from './ImageDropzone';
 
 export default function CreateForm({ onTaskCreated }) {
   const [idea, setIdea] = useState('');
   const [images, setImages] = useState([]);
   const [aspectRatio, setAspectRatio] = useState('16:9');
+  const [model, setModel] = useState('doubao-seedance-1-0-pro-250528');
+  const [duration, setDuration] = useState(5);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
   const aspectRatios = ['16:9', '9:16', '1:1', '4:3', '3:4'];
+
+  const models = [
+    { value: 'doubao-seedance-1-0-pro-250528', label: 'Doubao Seedance Pro' },
+    { value: 'kling-v1-6', label: 'Kling v1.6' },
+  ];
+
+  const durations = [5, 10];
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -24,7 +33,7 @@ export default function CreateForm({ onTaskCreated }) {
     setError('');
     
     try {
-      const res = await createVideoTask(idea, images, aspectRatio);
+      const res = await createVideoTask(idea, images, aspectRatio, model, duration);
       if (res.task_id) {
         onTaskCreated(res.task_id);
       } else {
@@ -82,6 +91,48 @@ export default function CreateForm({ onTaskCreated }) {
                 )}
               >
                 {ratio}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-3 relative z-10">
+          <label className="text-sm font-semibold text-slate-300 uppercase tracking-widest">Model</label>
+          <div className="flex flex-wrap gap-3">
+            {models.map(m => (
+              <button
+                key={m.value}
+                type="button"
+                onClick={() => setModel(m.value)}
+                className={cn(
+                  "px-5 py-2 rounded-full font-medium transition-all duration-300",
+                  model === m.value
+                    ? "bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-[0_0_15px_rgba(168,85,247,0.4)]"
+                    : "bg-slate-800 text-slate-400 hover:bg-slate-700 border border-slate-700"
+                )}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-3 relative z-10">
+          <label className="text-sm font-semibold text-slate-300 uppercase tracking-widest">Duration</label>
+          <div className="flex flex-wrap gap-3">
+            {durations.map(d => (
+              <button
+                key={d}
+                type="button"
+                onClick={() => setDuration(d)}
+                className={cn(
+                  "px-5 py-2 rounded-full font-medium transition-all duration-300",
+                  duration === d
+                    ? "bg-gradient-to-r from-cyan-500 to-blue-500 text-white shadow-[0_0_15px_rgba(0,210,255,0.4)]"
+                    : "bg-slate-800 text-slate-400 hover:bg-slate-700 border border-slate-700"
+                )}
+              >
+                {d}s
               </button>
             ))}
           </div>

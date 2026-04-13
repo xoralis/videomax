@@ -16,6 +16,8 @@ type VideoTaskMessage struct {
 	UserIdea    string   `json:"user_idea"`
 	ImagePaths  []string `json:"image_paths"`
 	AspectRatio string   `json:"aspect_ratio"`
+	Duration    int      `json:"duration"`
+	Model       string   `json:"model"`
 }
 
 // Producer Kafka 消息生产者封装

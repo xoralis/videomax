@@ -186,9 +186,9 @@ func (c *KlingClient) GenerateVideo(ctx context.Context, req GenerateRequest) (*
 	}
 
 	// 设置时长
-	if req.Length > 0 && req.Length <= 5 {
+	if req.Duration > 0 && req.Duration <= 5 {
 		klingReq.Duration = "5"
-	} else if req.Length > 5 {
+	} else if req.Duration > 5 {
 		klingReq.Duration = "10"
 	} else {
 		klingReq.Duration = "5" // 默认 5 秒

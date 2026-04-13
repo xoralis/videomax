@@ -34,12 +34,12 @@ const (
 
 // doubaoRequest Responses API 请求体
 type doubaoRequest struct {
-	Model        string           `json:"model"`                   // 模型 ID 或推理接入点 ID (ep-xxx)
-	Input        json.RawMessage  `json:"input"`                   // 输入内容：string 或 message 数组
-	Instructions string           `json:"instructions,omitempty"`  // 系统指令（替代 messages 中的 system role）
-	Tools        []doubaoToolDef  `json:"tools,omitempty"`         // Function Calling 工具定义
-	PrevRespID   string           `json:"previous_response_id,omitempty"` // 上一次响应 ID（有状态对话）
-	Stream       bool             `json:"stream"`                  // 是否流式输出，默认 false
+	Model        string          `json:"model"`                          // 模型 ID 或推理接入点 ID (ep-xxx)
+	Input        json.RawMessage `json:"input"`                          // 输入内容：string 或 message 数组
+	Instructions string          `json:"instructions,omitempty"`         // 系统指令（替代 messages 中的 system role）
+	Tools        []doubaoToolDef `json:"tools,omitempty"`                // Function Calling 工具定义
+	PrevRespID   string          `json:"previous_response_id,omitempty"` // 上一次响应 ID（有状态对话）
+	Stream       bool            `json:"stream"`                         // 是否流式输出，默认 false
 }
 
 // doubaoToolDef Responses API 的工具定义格式
@@ -49,7 +49,7 @@ type doubaoToolDef struct {
 	Type        string      `json:"type"`        // "function"
 	Name        string      `json:"name"`        // 函数名称
 	Description string      `json:"description"` // 函数描述
-	Parameters  interface{} `json:"parameters"` // JSON Schema 格式的参数定义
+	Parameters  interface{} `json:"parameters"`  // JSON Schema 格式的参数定义
 }
 
 // doubaoInputMessage Responses API input 数组中的消息元素
@@ -67,7 +67,7 @@ type doubaoContentPart struct {
 
 // doubaoFunctionCallInput 传回的历史工具调用指令
 type doubaoFunctionCallInput struct {
-	Type      string `json:"type"`      // "function_call"
+	Type      string `json:"type"` // "function_call"
 	CallID    string `json:"call_id"`
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"`
@@ -75,9 +75,9 @@ type doubaoFunctionCallInput struct {
 
 // doubaoToolCallInput 传入工具调用结果的消息
 type doubaoToolCallInput struct {
-	Type       string `json:"type"`        // "function_call_output"
-	CallID     string `json:"call_id"`     // 对应的 function_call 的 call_id
-	Output     string `json:"output"`      // 工具执行结果
+	Type   string `json:"type"`    // "function_call_output"
+	CallID string `json:"call_id"` // 对应的 function_call 的 call_id
+	Output string `json:"output"`  // 工具执行结果
 }
 
 // ==================== Responses API 响应结构体 ====================
@@ -96,7 +96,7 @@ type doubaoOutputItem struct {
 	Type string `json:"type"` // "message", "function_call", "reasoning"
 
 	// type="message" 时的字段
-	Role    string               `json:"role,omitempty"`
+	Role    string                `json:"role,omitempty"`
 	Content []doubaoOutputContent `json:"content,omitempty"`
 
 	// type="function_call" 时的字段
@@ -168,10 +168,12 @@ func NewDoubaoClient(apiKey string, baseURL string, model string) *DoubaoClient 
 	)
 
 	return &DoubaoClient{
-		apiKey:     apiKey,
-		baseURL:    baseURL,
-		model:      model,
-		httpClient: &http.Client{Timeout: 120 * time.Second},
+		apiKey:  apiKey,
+		baseURL: baseURL,
+		model:   model,
+		// Timeout=0：不设客户端级固定超时，完全由调用方通过 context 控制截止时间。
+		// LLM 推理耗时不可预测（通常 30s-5min），固定超时会误杀正常请求。
+		httpClient: &http.Client{Timeout: 0},
 	}
 }
 
@@ -183,16 +185,18 @@ func (c *DoubaoClient) Provider() string {
 // 将通用的 ChatRequest 转换为 Responses API 格式进行请求
 //
 // 映射关系：
-//   ChatRequest.SystemPrompt → doubaoRequest.Instructions
-//   ChatRequest.History      → doubaoRequest.Input (消息数组)
-//   ChatRequest.UserMessage  → 追加到 Input 的最后一条 user 消息
-//   ChatRequest.ImagePaths   → user 消息中的 input_image content part
-//   ChatRequest.Tools        → doubaoRequest.Tools
+//
+//	ChatRequest.SystemPrompt → doubaoRequest.Instructions
+//	ChatRequest.History      → doubaoRequest.Input (消息数组)
+//	ChatRequest.UserMessage  → 追加到 Input 的最后一条 user 消息
+//	ChatRequest.ImagePaths   → user 消息中的 input_image content part
+//	ChatRequest.Tools        → doubaoRequest.Tools
 //
 // 响应映射：
-//   output[type="message"]       → ChatResponse.Content
-//   output[type="function_call"] → ChatResponse.ToolCalls
-//   usage                        → ChatResponse.Usage
+//
+//	output[type="message"]       → ChatResponse.Content
+//	output[type="function_call"] → ChatResponse.ToolCalls
+//	usage                        → ChatResponse.Usage
 func (c *DoubaoClient) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
 	ctx, span := otel.Tracer("videomax").Start(ctx, "doubao.Chat",
 		trace.WithAttributes(
@@ -468,7 +472,7 @@ func (c *DoubaoClient) uploadFile(ctx context.Context, path string) (string, err
 // waitForFileReady 轮询查询文件状态直到不是 processing
 func (c *DoubaoClient) waitForFileReady(ctx context.Context, fileID string) error {
 	reqURL := fmt.Sprintf("%s/files/%s", c.baseURL, fileID)
-	
+
 	// 最多轮询 15 次，每次间隔 1 秒
 	for i := 0; i < 15; i++ {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
@@ -481,7 +485,7 @@ func (c *DoubaoClient) waitForFileReady(ctx context.Context, fileID string) erro
 		if err != nil {
 			return err
 		}
-		
+
 		respBytes, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if err != nil {
@@ -503,7 +507,7 @@ func (c *DoubaoClient) waitForFileReady(ctx context.Context, fileID string) erro
 		}
 
 		logger.Log.Debugw("豆包图片处理中，等待...", "file_id", fileID, "attempt", i+1)
-		
+
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
