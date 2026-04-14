@@ -56,6 +56,16 @@ type hunyuanSubmitReq struct {
 	Prompt     string            `json:"Prompt,omitempty"`     // 视频生成提示词，≤2000 UTF-8 字符
 	Resolution string            `json:"Resolution,omitempty"` // 分辨率：480p/720p/1080p，默认 720p
 	Fps        int               `json:"Fps,omitempty"`        // 帧率：16/24/30，默认 24
+	LogoParam  struct {          // 水印
+		LogoUrl   string `json:"LogoUrl,omitempty"`
+		LogoImage string `json:"LogoImage,omitempty"`
+		LogoRect  struct {
+			X      int `json:"X,omitempty"`
+			Y      int `json:"Y,omitempty"`
+			Width  int `json:"Width,omitempty"`
+			Height int `json:"Height,omitempty"`
+		} `json:"LogoRect,omitempty"`
+	} `json:"LogoParam,omitempty"`
 }
 
 // hunyuanSubmitResp 提交任务响应
@@ -78,11 +88,11 @@ type hunyuanQueryReq struct {
 // hunyuanQueryResp 查询任务状态响应
 type hunyuanQueryResp struct {
 	Response struct {
-		Status       string `json:"Status"` // WAIT / RUN / FAIL / DONE
-		ErrorCode    string `json:"ErrorCode"`
-		ErrorMessage string `json:"ErrorMessage"`
-		ResultUrl    string `json:"ResultUrl"` // 视频 URL，成功后有效 24 小时
-		RequestId    string `json:"RequestId"`
+		Status         string `json:"Status"` // WAIT / RUN / FAIL / DONE
+		ErrorCode      string `json:"ErrorCode"`
+		ErrorMessage   string `json:"ErrorMessage"`
+		ResultVideoUrl string `json:"ResultVideoUrl"` // 视频 URL，成功后有效 24 小时
+		RequestId      string `json:"RequestId"`
 	} `json:"Response"`
 }
 
@@ -353,7 +363,7 @@ func (c *HunyuanClient) CheckStatus(ctx context.Context, providerTaskID string) 
 	switch queryResp.Response.Status {
 	case "DONE":
 		status.IsFinished = true
-		status.VideoURL = queryResp.Response.ResultUrl
+		status.VideoURL = queryResp.Response.ResultVideoUrl
 	case "FAIL":
 		status.IsFinished = true
 		status.IsFailed = true

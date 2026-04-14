@@ -25,6 +25,7 @@ import (
 	kafkapkg "video-max/pkg/kafka"
 	"video-max/pkg/llmclient"
 	"video-max/pkg/logger"
+	ossuploader "video-max/pkg/oss"
 )
 
 func main() {
@@ -115,7 +116,17 @@ func main() {
 	}
 	logger.Log.Infow("视频服务工厂初始化完成", "provider_count", len(cfg.Video.Providers))
 
-	// ==================== 9. 初始化 Kafka 生产者与消费者 ====================
+	// ==================== 9. 初始化 OSS 上传器（可选）====================
+	var uploader *ossuploader.Uploader
+	if cfg.OSS.Enabled {
+		uploader, err = ossuploader.NewUploader(cfg.OSS)
+		if err != nil {
+			logger.Log.Fatalw("OSS 初始化失败", "error", err)
+		}
+		logger.Log.Infow("OSS 已启用", "bucket", cfg.OSS.Bucket)
+	}
+
+	// ==================== 10. 初始化 Kafka 生产者与消费者 ====================
 	kafkaProducer, err := kafkapkg.NewSyncProducer(cfg.Kafka.Brokers)
 	if err != nil {
 		logger.Log.Fatalw("Kafka 生产者创建失败", "error", err)
@@ -123,7 +134,7 @@ func main() {
 	defer kafkaProducer.Close()
 
 	producer := queue.NewProducer(kafkaProducer, cfg.Kafka.Topic)
-	consumer := queue.NewConsumer(orchestrator, taskRepo, videoFactory, eventEmitter)
+	consumer := queue.NewConsumer(orchestrator, taskRepo, videoFactory, eventEmitter, uploader)
 
 	// 启动 Kafka 消费者协程（后台持续监听 Topic）
 	kafkaConsumerGroup, err := kafkapkg.NewConsumerGroup(cfg.Kafka.Brokers, cfg.Kafka.GroupID)

@@ -15,6 +15,7 @@ type AppConfig struct {
 	LLM       LLMConfig       `yaml:"llm"`
 	Video     VideoConfig     `yaml:"video"`
 	Storage   StorageConfig   `yaml:"storage"`
+	OSS       OSSConfig       `yaml:"oss"`
 	Log       LogConfig       `yaml:"log"`
 	LangSmith LangSmithConfig `yaml:"langsmith"`
 	JWT       JWTConfig       `yaml:"jwt"`
@@ -61,6 +62,16 @@ type VideoConfig struct {
 // StorageConfig 本地文件存储路径配置
 type StorageConfig struct {
 	UploadDir string `yaml:"upload_dir"` // 用户上传的参考图片存放目录
+}
+
+// OSSConfig 阿里云 OSS 对象存储配置
+type OSSConfig struct {
+	Enabled         bool   `yaml:"enabled"`           // 是否开启 OSS 存储（false 时降级使用厂商原始 URL）
+	Endpoint        string `yaml:"endpoint"`          // OSS Endpoint，如 oss-cn-hangzhou.aliyuncs.com
+	AccessKeyID     string `yaml:"access_key_id"`     // AccessKey ID
+	AccessKeySecret string `yaml:"access_key_secret"` // AccessKey Secret
+	Bucket          string `yaml:"bucket"`            // Bucket 名称
+	BaseURL         string `yaml:"base_url"`          // 可选：自定义 CDN 域名，留空则使用 OSS 默认地址
 }
 
 // JWTConfig JWT 认证配置

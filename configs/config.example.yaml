@@ -37,6 +37,14 @@ video:
 storage:
   upload_dir: "./uploads"
 
+oss:
+  enabled: false
+  endpoint: "oss-cn-hangzhou.aliyuncs.com"
+  access_key_id: ""
+  access_key_secret: ""
+  bucket: ""
+  base_url: ""  # 可选：自定义 CDN 域名，如 https://cdn.example.com，留空则使用 OSS 默认地址
+
 log:
   level: "info"
   mode: "console"        # console / file / both
@@ -51,3 +59,7 @@ langsmith:
   enabled: false
   api_key: "your-langsmith-api-key"
   project_name: "videomax"
+
+jwt:
+  secret: "change-this-to-a-strong-random-secret-in-production"
+  expire_days: 7

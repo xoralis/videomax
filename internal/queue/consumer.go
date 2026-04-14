@@ -17,6 +17,7 @@ import (
 	"video-max/internal/repository"
 	"video-max/internal/video"
 	"video-max/pkg/logger"
+	ossuploader "video-max/pkg/oss"
 )
 
 // Consumer Kafka 消费者，负责从 Topic 中取出任务并驱动 MAS 多智能体流水线
@@ -25,15 +26,17 @@ type Consumer struct {
 	taskRepo     repository.TaskRepository // 任务存储层
 	videoFactory *video.VideoFactory       // 视频生成服务工厂（支持按模型选择 Provider）
 	emitter      *mas.EventEmitter         // SSE 事件发射器
+	ossUploader  *ossuploader.Uploader     // 阿里云 OSS 上传器（可选，nil 时降级使用原始 URL）
 }
 
 // NewConsumer 创建 Kafka 消费者实例
-func NewConsumer(orch *mas.Orchestrator, repo repository.TaskRepository, vf *video.VideoFactory, emitter *mas.EventEmitter) *Consumer {
+func NewConsumer(orch *mas.Orchestrator, repo repository.TaskRepository, vf *video.VideoFactory, emitter *mas.EventEmitter, uploader *ossuploader.Uploader) *Consumer {
 	return &Consumer{
 		orchestrator: orch,
 		taskRepo:     repo,
 		videoFactory: vf,
 		emitter:      emitter,
+		ossUploader:  uploader,
 	}
 }
 
@@ -180,14 +183,31 @@ func (c *Consumer) processTask(ctx context.Context, msg VideoTaskMessage) error 
 		return fmt.Errorf("视频生成失败: %s", status.ErrorMsg)
 	}
 
-	// 6. 保存最终结果
-	if err := c.taskRepo.SaveResult(ctx, taskID, status.VideoURL, genResult.ProviderTaskID); err != nil {
+	// 6. 可选：将视频上传到阿里云 OSS，替换临时 CDN 链接为永久 OSS URL
+	finalURL := status.VideoURL
+	if c.ossUploader != nil {
+		objectKey := fmt.Sprintf("videos/%s.mp4", taskID)
+		ossURL, uploadErr := c.ossUploader.UploadFromURL(ctx, status.VideoURL, objectKey)
+		if uploadErr != nil {
+			// OSS 上传失败不阻断主流程，降级保留原始 CDN URL
+			logger.Log.Warnw("OSS 上传失败，降级使用原始视频 URL",
+				"task_id", taskID,
+				"error", uploadErr,
+			)
+		} else {
+			finalURL = ossURL
+			logger.Log.Infow("视频已上传至 OSS", "task_id", taskID, "oss_url", ossURL)
+		}
+	}
+
+	// 7. 保存最终结果（OSS URL 或原始 CDN URL）
+	if err := c.taskRepo.SaveResult(ctx, taskID, finalURL, genResult.ProviderTaskID); err != nil {
 		return fmt.Errorf("保存视频结果失败: %w", err)
 	}
 
 	logger.Log.Infow("🎉 视频生成任务完成！",
 		"task_id", taskID,
-		"video_url", status.VideoURL,
+		"video_url", finalURL,
 	)
 	return nil
 }
