@@ -254,10 +254,12 @@ videoMax/
 - Node.js 18+ & pnpm
 - Docker & Docker Compose
 
-### 1. 启动基础设施
+### 方式一：本地开发（仅启动基础设施）
+
+只用 Docker 启动 MySQL + Kafka，Go 程序和前端在本机运行：
 
 ```bash
-docker-compose up -d
+docker compose up -d mysql zookeeper kafka
 ```
 
 等待 MySQL 和 Kafka 就绪（约 15-30 秒）。
@@ -319,7 +321,7 @@ oss:
 
 </details>
 
-### 3. 启动后端
+### 3. 启动后端（本地开发）
 
 ```bash
 go run cmd/api/main.go
@@ -327,7 +329,7 @@ go run cmd/api/main.go
 
 服务默认监听 `http://localhost:8080`。
 
-### 4. 启动前端
+### 4. 启动前端（本地开发）
 
 ```bash
 cd frontend
@@ -337,9 +339,110 @@ pnpm dev
 
 前端默认运行在 `http://localhost:5173`，API 请求自动代理到后端。
 
+---
+
+## 🐳 Docker 部署
+
+### 方式二：本地一键启动整个栈
+
+无需单独安装 Go / Node，所有服务（后端、前端、MySQL、Kafka）全部由 Docker 运行：
+
+```bash
+docker compose up -d --build
+```
+
+首次执行会自动构建后端和前端镜像，后续无代码变更时可省略 `--build`：
+
+```bash
+docker compose up -d
+```
+
+启动后访问：
+- 前端：`http://localhost`
+- 后端 API：`http://localhost:8080`
+
+> **注意：** 运行前确保 `configs/config.yaml` 中的连接地址使用容器服务名：
+> - MySQL DSN host 填 `mysql`
+> - Kafka brokers 填 `kafka:9092`
+
+---
+
+### 方式三：构建镜像并推送到 Docker Hub
+
+适用于将应用打包后部署到远端服务器，无需在服务器上安装 Go / Node 开发环境。
+
+**第一步：登录 Docker Hub**
+
+```bash
+docker login
+```
+
+**第二步：构建并推送镜像**
+
+```bash
+# 构建后端镜像
+docker build -t your-dockerhub-username/videomax-backend:latest .
+
+# 构建前端镜像
+docker build -t your-dockerhub-username/videomax-frontend:latest ./frontend
+
+# 推送到 Docker Hub
+docker push your-dockerhub-username/videomax-backend:latest
+docker push your-dockerhub-username/videomax-frontend:latest
+```
+
+**第三步：修改 docker-compose.yml**
+
+将 `backend` 和 `frontend` 服务的 `build` 字段替换为 `image` 字段：
+
+```yaml
+backend:
+  image: your-dockerhub-username/videomax-backend:latest
+
+frontend:
+  image: your-dockerhub-username/videomax-frontend:latest
+```
+
+### 方式四：远端服务器拉取并启动
+
+将修改后的 `docker-compose.yml` 和 `configs/config.yaml` 复制到目标机器，然后执行：
+
+```bash
+# 拉取所有镜像
+docker compose pull
+
+# 启动全部服务
+docker compose up -d
+```
+
+> **注意：** 目标机器只需安装 Docker，不需要 Go 或 Node 开发环境。
+
+**远端 config.yaml 的连接地址必须使用容器服务名：**
+
+```yaml
+mysql:
+  dsn: "videomax:videomax_password@tcp(mysql:3306)/videomax?charset=utf8mb4&parseTime=True&loc=Local"
+
+kafka:
+  brokers:
+    - "kafka:9092"
+```
+
+**确保目标机器以下端口未被占用：**
+
+| 端口 | 服务 |
+|------|------|
+| 80   | 前端 (nginx) |
+| 8080 | 后端 API |
+| 3306 | MySQL |
+| 9092 | Kafka |
+| 2181 | Zookeeper |
+
+---
+
 ### 5. 使用
 
-1. 打开浏览器访问 `http://localhost:5173`
+1. 打开浏览器访问 `http://ip:5173`
 2. 注册账号或登录（邮箱 + 密码）
 3. 输入视频创意描述（支持中文）
 4. 可选：上传参考图片（拖拽或点击）

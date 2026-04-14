@@ -1,0 +1,26 @@
+# 版本控制
+.git
+.gitignore
+
+# 开发配置（用挂载卷提供 config.yaml，不打进镜像）
+configs/config.yaml
+
+# 上传目录（运行时产生）
+uploads/
+logs/
+
+# 前端源码（后端镜像不需要）
+frontend/
+
+# 测试与文档
+**/*_test.go
+README.md
+*.md
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
