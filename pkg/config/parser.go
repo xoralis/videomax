@@ -19,6 +19,7 @@ type AppConfig struct {
 	Log       LogConfig       `yaml:"log"`
 	LangSmith LangSmithConfig `yaml:"langsmith"`
 	JWT       JWTConfig       `yaml:"jwt"`
+	RAG       RAGConfig       `yaml:"rag"`
 }
 
 // ServerConfig HTTP 服务相关配置
@@ -97,6 +98,18 @@ type LogConfig struct {
 	MaxBackups int    `yaml:"max_backups"`  // 最大保留日志文件数量
 	MaxAgeDays int    `yaml:"max_age_days"` // 日志保留天数
 	Compress   bool   `yaml:"compress"`     // 是否压缩日志
+}
+
+// RAGConfig RAG 模块配置
+type RAGConfig struct {
+	Enabled      bool   `yaml:"enabled"`        // 是否启用 RAG（false 时降级使用 PresetSearchTool）
+	MilvusAddr   string `yaml:"milvus_addr"`    // Milvus gRPC 地址，如 "localhost:19530"
+	Collection   string `yaml:"collection"`     // Milvus 集合名称
+	EmbedAPIKey  string `yaml:"embed_api_key"`  // Embedding API Key（留空复用 llm.api_key）
+	EmbedBaseURL string `yaml:"embed_base_url"` // Embedding API Base URL（留空复用 llm.base_url）
+	EmbedModel   string `yaml:"embed_model"`    // Embedding 模型名，如 "text-embedding-3-small"、"bge-m3"
+	EmbedDim     int    `yaml:"embed_dim"`      // 向量维度，传 0 则从 KnownModelDimensions 自动推断
+	TopK         int    `yaml:"top_k"`          // 每次检索返回的最大文档数，默认 3
 }
 
 // Load 从指定 YAML 文件路径加载并解析配置

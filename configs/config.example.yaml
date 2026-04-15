@@ -63,3 +63,13 @@ langsmith:
 jwt:
   secret: "change-this-to-a-strong-random-secret-in-production"
   expire_days: 7
+
+rag:
+  enabled: true
+  milvus_addr: "localhost:19530"   # docker-compose 内部访问改为 "milvus-standalone:19530"
+  collection: "videomax_knowledge"
+  embed_api_key: ""                # 留空则复用 llm.api_key
+  embed_base_url: ""               # 留空则复用 llm.base_url
+  embed_model: "text-embedding-3-small"  # 支持: text-embedding-3-large / bge-m3 / doubao-embedding
+  embed_dim: 0                     # 0 = 从 KnownModelDimensions 自动推断，手动覆盖可填具体数值
+  top_k: 3

@@ -26,6 +26,7 @@ import (
 	"video-max/pkg/llmclient"
 	"video-max/pkg/logger"
 	ossuploader "video-max/pkg/oss"
+	"video-max/pkg/rag"
 )
 
 func main() {
@@ -82,8 +83,36 @@ func main() {
 	logger.Log.Infow("LLM 客户端初始化完成", "provider", llm.Provider(), "model", cfg.LLM.Model)
 
 	// ==================== 6. 初始化工具箱 (供 ReAct Agent 使用) ====================
-	aiTools := []tools.AITool{
-		&tools.PresetSearchTool{},
+	// 优先尝试启用 RAG；初始化失败或未配置时降级使用硬编码的 PresetSearchTool
+	var aiTools []tools.AITool
+	if cfg.RAG.Enabled {
+		// 自动分配 Embed API Key：优先取 rag.embed_api_key，留空则复用 llm.api_key
+		embedAPIKey := cfg.RAG.EmbedAPIKey
+		if embedAPIKey == "" {
+			embedAPIKey = cfg.LLM.APIKey
+		}
+		embedBaseURL := cfg.RAG.EmbedBaseURL
+		if embedBaseURL == "" {
+			embedBaseURL = cfg.LLM.BaseURL
+		}
+		topK := cfg.RAG.TopK
+		if topK <= 0 {
+			topK = 3
+		}
+
+		embedder := rag.NewEmbedder(embedAPIKey, embedBaseURL, cfg.RAG.EmbedModel, cfg.RAG.EmbedDim)
+		milvusStore, ragErr := rag.NewMilvusStore(context.Background(), cfg.RAG.MilvusAddr, cfg.RAG.Collection, embedder.Dim())
+		if ragErr != nil {
+			logger.Log.Warnw("Milvus 连接失败，降级使用 PresetSearchTool", "error", ragErr)
+			aiTools = []tools.AITool{&tools.PresetSearchTool{}}
+		} else {
+			retriever := rag.NewRetriever(embedder, milvusStore, topK)
+			aiTools = []tools.AITool{tools.NewRAGSearchTool(retriever)}
+			logger.Log.Infow("RAG 模块已启用", "milvus_addr", cfg.RAG.MilvusAddr, "collection", cfg.RAG.Collection, "top_k", topK)
+		}
+	} else {
+		aiTools = []tools.AITool{&tools.PresetSearchTool{}}
+		logger.Log.Info("RAG 模块已禁用，使用 PresetSearchTool")
 	}
 	logger.Log.Infow("AI 工具箱初始化完成", "tool_count", len(aiTools))
 
@@ -133,8 +162,16 @@ func main() {
 	}
 	defer kafkaProducer.Close()
 
+	// 从步骤 6 的 aiTools 中提取 retriever（若已启用 RAG 则传给 Consumer，否则传 nil）
+	var ragRetriever *rag.Retriever
+	if len(aiTools) > 0 {
+		if ragTool, ok := aiTools[0].(*tools.RAGSearchTool); ok {
+			ragRetriever = ragTool.Retriever()
+		}
+	}
+
 	producer := queue.NewProducer(kafkaProducer, cfg.Kafka.Topic)
-	consumer := queue.NewConsumer(orchestrator, taskRepo, videoFactory, eventEmitter, uploader)
+	consumer := queue.NewConsumer(orchestrator, taskRepo, videoFactory, eventEmitter, uploader, ragRetriever)
 
 	// 启动 Kafka 消费者协程（后台持续监听 Topic）
 	kafkaConsumerGroup, err := kafkapkg.NewConsumerGroup(cfg.Kafka.Brokers, cfg.Kafka.GroupID)

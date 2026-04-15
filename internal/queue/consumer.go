@@ -18,6 +18,7 @@ import (
 	"video-max/internal/video"
 	"video-max/pkg/logger"
 	ossuploader "video-max/pkg/oss"
+	"video-max/pkg/rag"
 )
 
 // Consumer Kafka 消费者，负责从 Topic 中取出任务并驱动 MAS 多智能体流水线
@@ -27,16 +28,18 @@ type Consumer struct {
 	videoFactory *video.VideoFactory       // 视频生成服务工厂（支持按模型选择 Provider）
 	emitter      *mas.EventEmitter         // SSE 事件发射器
 	ossUploader  *ossuploader.Uploader     // 阿里云 OSS 上传器（可选，nil 时降级使用原始 URL）
+	retriever    *rag.Retriever            // RAG 检索器（可选，nil 时跳过历史 Prompt 入库）
 }
 
 // NewConsumer 创建 Kafka 消费者实例
-func NewConsumer(orch *mas.Orchestrator, repo repository.TaskRepository, vf *video.VideoFactory, emitter *mas.EventEmitter, uploader *ossuploader.Uploader) *Consumer {
+func NewConsumer(orch *mas.Orchestrator, repo repository.TaskRepository, vf *video.VideoFactory, emitter *mas.EventEmitter, uploader *ossuploader.Uploader, retriever *rag.Retriever) *Consumer {
 	return &Consumer{
 		orchestrator: orch,
 		taskRepo:     repo,
 		videoFactory: vf,
 		emitter:      emitter,
 		ossUploader:  uploader,
+		retriever:    retriever,
 	}
 }
 
@@ -205,11 +208,35 @@ func (c *Consumer) processTask(ctx context.Context, msg VideoTaskMessage) error 
 		return fmt.Errorf("保存视频结果失败: %w", err)
 	}
 
+	// 8. 将本次成功的 Prompt 写入 RAG 向量库，供后续同类任务做 Few-Shot 参考
+	c.ingestSuccessfulPrompt(ctx, taskID, msg.UserIdea, masResult.FinalPrompts)
+
 	logger.Log.Infow("🎉 视频生成任务完成！",
 		"task_id", taskID,
 		"video_url", finalURL,
 	)
 	return nil
+}
+
+// ingestSuccessfulPrompt 将任务成功产出的 Prompt 异步写入 RAG 知识库
+// 失败时只记录警告，不影响主流程
+func (c *Consumer) ingestSuccessfulPrompt(ctx context.Context, taskID, userIdea, finalPrompt string) {
+	if c.retriever == nil || finalPrompt == "" {
+		return
+	}
+	doc := rag.Document{
+		ID:      "task_" + taskID,
+		Content: fmt.Sprintf("用户创意：%s\n生成提示词：%s", userIdea, finalPrompt),
+		Metadata: map[string]string{
+			"type":    "historical_prompt",
+			"task_id": taskID,
+		},
+	}
+	if err := c.retriever.IngestDocuments(ctx, []rag.Document{doc}); err != nil {
+		logger.Log.Warnw("历史 Prompt 写入 RAG 失败（不影响主流程）", "task_id", taskID, "error", err)
+	} else {
+		logger.Log.Infow("历史 Prompt 已写入 RAG 知识库", "task_id", taskID)
+	}
 }
 
 // pollVideoStatus 轮询视频生成状态
