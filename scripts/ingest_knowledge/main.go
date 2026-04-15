@@ -152,8 +152,10 @@ func main() {
 		metadata map[string]string
 	}{
 		{
-			path:     `D:\MarkDown_Files\Go\videoMax\seedance.md`,
-			metadata: map[string]string{"provider": "bytedance", "source_file": "seedance.md"},
+			// path:     `D:\MarkDown_Files\Go\videoMax\seedance.md`,
+			// metadata: map[string]string{"provider": "bytedance", "source_file": "seedance.md"},
+			path:     `D:\MarkDown_Files\知识疑问.md`,
+			metadata: map[string]string{"provider": "bytedance", "source_file": "知识疑问.md"},
 		},
 	}
 
