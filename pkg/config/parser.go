@@ -110,6 +110,8 @@ type RAGConfig struct {
 	EmbedModel   string `yaml:"embed_model"`    // Embedding 模型名，如 "text-embedding-3-small"、"bge-m3"
 	EmbedDim     int    `yaml:"embed_dim"`      // 向量维度，传 0 则从 KnownModelDimensions 自动推断
 	TopK         int    `yaml:"top_k"`          // 每次检索返回的最大文档数，默认 3
+	ChunkSize    int    `yaml:"chunk_size"`     // 文档切分块大小（Rune 数），默认 512
+	ChunkOverlap int    `yaml:"chunk_overlap"`  // 相邻块重叠字符数，默认 50
 }
 
 // Load 从指定 YAML 文件路径加载并解析配置

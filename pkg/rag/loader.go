@@ -49,7 +49,7 @@ func LoadFile(ctx context.Context, path string, opts LoaderOptions) ([]Document,
 		loader = &TextLoader{Options: opts}
 	case ".md", ".markdown":
 		loader = &MarkdownLoader{Options: opts}
-	// TODO PDF解析暂未实现
+	// TODO 简单PDF加载器，后续支持更智能的 PDF 解析（表格、图片等）
 	case ".pdf":
 		loader = &PDFLoader{Options: opts}
 	default:
