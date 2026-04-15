@@ -5,6 +5,7 @@ import ProgressView from './components/ProgressView';
 import LoginForm from './components/auth/LoginForm';
 import RegisterForm from './components/auth/RegisterForm';
 import HistoryPage from './components/history/HistoryPage';
+import KnowledgePage from './components/rag/KnowledgePage';
 import { getUser, isAuthenticated, logout } from './services/authService';
 
 // 需要登录才能访问的路由包装
@@ -48,6 +49,9 @@ function Navbar() {
               <Link to="/history" className="text-slate-400 hover:text-white text-sm transition-colors">
                 历史记录
               </Link>
+              <Link to="/knowledge" className="text-slate-400 hover:text-white text-sm transition-colors">
+                知识库
+              </Link>
               <span className="text-slate-500 text-sm hidden sm:block">{user?.username}</span>
               <button
                 onClick={handleLogout}
@@ -83,6 +87,7 @@ function AppLayout() {
           <Route path="/register" element={<RegisterForm />} />
           <Route path="/" element={<PrivateRoute><HomePage /></PrivateRoute>} />
           <Route path="/history" element={<PrivateRoute><HistoryPage /></PrivateRoute>} />
+          <Route path="/knowledge" element={<PrivateRoute><KnowledgePage /></PrivateRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>

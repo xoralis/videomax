@@ -13,6 +13,7 @@ func SetupRouter(
 	sseHandler *handler.SSEHandler,
 	authHandler *handler.AuthHandler,
 	historyHandler *handler.HistoryHandler,
+	ragHandler *handler.RAGHandler,
 	jwtSecret string,
 ) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
@@ -41,6 +42,16 @@ func SetupRouter(
 			// 历史记录 & 统计
 			protected.GET("/tasks", historyHandler.ListTasks)
 			protected.GET("/stats", historyHandler.GetStats)
+
+			// RAG 知识库（仅 RAG 已启用时 ragHandler 不为 nil）
+			if ragHandler != nil {
+				ragGroup := protected.Group("/rag")
+				{
+					ragGroup.GET("/search", ragHandler.Search)
+					ragGroup.POST("/ingest/file", ragHandler.IngestFile)
+					ragGroup.POST("/ingest/text", ragHandler.IngestText)
+				}
+			}
 		}
 	}
 

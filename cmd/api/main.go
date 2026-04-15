@@ -206,7 +206,14 @@ func main() {
 	sseHandler := handler.NewSSEHandler(eventEmitter)
 	authHandler := handler.NewAuthHandler(userRepo, cfg.JWT.Secret, cfg.JWT.ExpireDays)
 	historyHandler := handler.NewHistoryHandler(taskRepo)
-	router := api.SetupRouter(videoHandler, sseHandler, authHandler, historyHandler, cfg.JWT.Secret)
+
+	// RAG Handler：仅当 RAG 已成功初始化（ragRetriever != nil）时创建
+	var ragHandler *handler.RAGHandler
+	if ragRetriever != nil {
+		ragHandler = handler.NewRAGHandler(ragRetriever, cfg.RAG.ChunkSize, cfg.RAG.ChunkOverlap)
+	}
+
+	router := api.SetupRouter(videoHandler, sseHandler, authHandler, historyHandler, ragHandler, cfg.JWT.Secret)
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
 	logger.Log.Infow("🎬 videoMax HTTP 服务已就绪", "addr", addr)

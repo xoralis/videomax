@@ -24,6 +24,13 @@ func NewRetriever(embedder Embedder, store VectorStore, topK int) *Retriever {
 	}
 }
 
+// WithTopK 返回一个使用新 topK 值的浅拷贝 Retriever（原实例不变）
+func (r *Retriever) WithTopK(topK int) *Retriever {
+	clone := *r
+	clone.topK = topK
+	return &clone
+}
+
 // Retrieve 对 query 文本进行语义检索，返回最相关的文档列表
 func (r *Retriever) Retrieve(ctx context.Context, query string) ([]Document, error) {
 	vec, err := r.embedder.Embed(ctx, query)
