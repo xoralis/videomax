@@ -22,6 +22,123 @@ function StatusBadge({ status }) {
   );
 }
 
+function ChevronIcon({ open }) {
+  return (
+    <svg
+      className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+    </svg>
+  );
+}
+
+function TaskRow({ task }) {
+  const [open, setOpen] = useState(false);
+
+  let inputImages = [];
+  try {
+    if (task.input_images) inputImages = JSON.parse(task.input_images);
+  } catch (_) {}
+
+  return (
+    <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
+      {/* 头部行：点击展开/收起 */}
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full text-left px-4 py-4 flex flex-col sm:flex-row sm:items-center gap-3 hover:bg-slate-750 transition-colors focus:outline-none"
+      >
+        <div className="flex-1 min-w-0">
+          <p className="text-white text-sm font-medium truncate">{task.original_idea}</p>
+          <p className="text-slate-500 text-xs mt-1">
+            {task.model && <span className="mr-3">{task.model}</span>}
+            {new Date(task.created_at).toLocaleString('zh-CN')}
+          </p>
+        </div>
+        <div className="flex items-center gap-3 shrink-0">
+          <StatusBadge status={task.status} />
+          <ChevronIcon open={open} />
+        </div>
+      </button>
+
+      {/* 展开详情 */}
+      {open && (
+        <div className="border-t border-slate-700 px-4 py-4 space-y-4">
+          {/* 视频播放 */}
+          {task.video_url && (
+            <div>
+              <p className="text-slate-400 text-xs mb-2">视频</p>
+              <video
+                src={task.video_url}
+                controls
+                className="w-full max-h-80 rounded-lg bg-black"
+              />
+              <a
+                href={task.video_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block mt-2 text-xs text-cyan-400 hover:text-cyan-300 underline"
+              >
+                下载视频
+              </a>
+            </div>
+          )}
+
+          {/* 参考图片 */}
+          {inputImages.length > 0 && (
+            <div>
+              <p className="text-slate-400 text-xs mb-2">参考图片</p>
+              <div className="flex flex-wrap gap-2">
+                {inputImages.map((img, i) => (
+                  <img
+                    key={i}
+                    src={img}
+                    alt={`参考图 ${i + 1}`}
+                    className="h-24 w-auto rounded-md object-cover border border-slate-600"
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 增强后的提示词 */}
+          {task.enhanced_prompt && (
+            <div>
+              <p className="text-slate-400 text-xs mb-1">增强后的提示词</p>
+              <pre className="text-slate-200 text-xs bg-slate-900 rounded-lg p-3 whitespace-pre-wrap break-all leading-relaxed">
+                {task.enhanced_prompt}
+              </pre>
+            </div>
+          )}
+
+          {/* 错误信息 */}
+          {task.error_msg && (
+            <div>
+              <p className="text-red-400 text-xs mb-1">错误信息</p>
+              <pre className="text-red-300 text-xs bg-slate-900 rounded-lg p-3 whitespace-pre-wrap break-all">
+                {task.error_msg}
+              </pre>
+            </div>
+          )}
+
+          {/* 元信息 */}
+          <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-slate-500">
+            <span>任务 ID：<span className="text-slate-400 font-mono">{task.id}</span></span>
+            {task.type && <span>类型：<span className="text-slate-400">{task.type === 't2v' ? '文生视频' : '图生视频'}</span></span>}
+            {task.external_task_id && (
+              <span>外部 ID：<span className="text-slate-400 font-mono">{task.external_task_id}</span></span>
+            )}
+            <span>更新时间：<span className="text-slate-400">{new Date(task.updated_at).toLocaleString('zh-CN')}</span></span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StatCard({ label, value, sub }) {
   return (
     <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 flex flex-col gap-1">
@@ -117,31 +234,7 @@ export default function HistoryPage() {
         <>
           <div className="space-y-3">
             {tasks.map((task) => (
-              <div
-                key={task.id}
-                className="bg-slate-800 border border-slate-700 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-3"
-              >
-                <div className="flex-1 min-w-0">
-                  <p className="text-white text-sm font-medium truncate">{task.original_idea}</p>
-                  <p className="text-slate-500 text-xs mt-1">
-                    {task.model && <span className="mr-3">{task.model}</span>}
-                    {new Date(task.created_at).toLocaleString('zh-CN')}
-                  </p>
-                </div>
-                <div className="flex items-center gap-3 shrink-0">
-                  <StatusBadge status={task.status} />
-                  {task.video_url && (
-                    <a
-                      href={task.video_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs bg-cyan-600 hover:bg-cyan-500 text-white px-3 py-1 rounded-full transition-colors"
-                    >
-                      观看视频
-                    </a>
-                  )}
-                </div>
-              </div>
+              <TaskRow key={task.id} task={task} />
             ))}
           </div>
 
