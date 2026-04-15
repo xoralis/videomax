@@ -104,14 +104,14 @@ func main() {
 		milvusStore, ragErr := rag.NewMilvusStore(context.Background(), cfg.RAG.MilvusAddr, cfg.RAG.Collection, embedder.Dim())
 		if ragErr != nil {
 			logger.Log.Warnw("Milvus 连接失败，降级使用 PresetSearchTool", "error", ragErr)
-			aiTools = []tools.AITool{&tools.PresetSearchTool{}}
+			aiTools = []tools.AITool{&tools.PresetSearchTool{}, tools.NewDuckDuckGoTool()}
 		} else {
 			retriever := rag.NewRetriever(embedder, milvusStore, topK)
-			aiTools = []tools.AITool{tools.NewRAGSearchTool(retriever)}
+			aiTools = []tools.AITool{tools.NewRAGSearchTool(retriever), tools.NewDuckDuckGoTool()}
 			logger.Log.Infow("RAG 模块已启用", "milvus_addr", cfg.RAG.MilvusAddr, "collection", cfg.RAG.Collection, "top_k", topK)
 		}
 	} else {
-		aiTools = []tools.AITool{&tools.PresetSearchTool{}}
+		aiTools = []tools.AITool{&tools.PresetSearchTool{}, tools.NewDuckDuckGoTool()}
 		logger.Log.Info("RAG 模块已禁用，使用 PresetSearchTool")
 	}
 	logger.Log.Infow("AI 工具箱初始化完成", "tool_count", len(aiTools))
