@@ -27,6 +27,7 @@ export default function useSSE(taskId) {
         Authorization: `Bearer ${getToken()}`,
       },
       signal: ctrl.signal,
+      openWhenHidden: true, // tab 切换/失焦时保持连接，避免断连丢失事件
 
       onopen(response) {
         if (response.ok) {

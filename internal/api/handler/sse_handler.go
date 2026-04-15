@@ -46,12 +46,20 @@ func (h *SSEHandler) StreamEvents(c *gin.Context) {
 	logger.Log.Infow("SSE: 客户端已连接", "task_id", taskID)
 
 	// 持续监听事件通道，直到通道关闭或客户端断连
+	// // keep-alive ticker：每 15 秒发送一次注释行，防止代理/浏览器因空闲关闭连接
+	// ticker := time.NewTicker(15 * time.Second)
+	// defer ticker.Stop()
+
 	clientGone := c.Request.Context().Done()
 	for {
 		select {
 		case <-clientGone:
 			logger.Log.Infow("SSE: 客户端已断开", "task_id", taskID)
 			return
+		// case <-ticker.C:
+		// 	// SSE 规范允许以 ": comment\n\n" 作为心跳，不触发客户端 onmessage
+		// 	io.WriteString(c.Writer, ": ping\n\n")
+		// 	c.Writer.Flush()
 		case event, ok := <-eventCh:
 			if !ok {
 				// 通道已关闭 → 任务完成，发送结束标记并退出
