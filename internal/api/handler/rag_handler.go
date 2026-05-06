@@ -6,6 +6,10 @@ import (
 	"path/filepath"
 
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"video-max/internal/domain/dto"
 	"video-max/pkg/logger"
@@ -45,18 +49,30 @@ func (h *RAGHandler) Search(c *gin.Context) {
 		return
 	}
 
+	ctx, span := otel.Tracer("videomax").Start(c.Request.Context(), "rag.search",
+		trace.WithAttributes(
+			attribute.String("gen_ai.operation.name", "chain"),
+			attribute.String("gen_ai.prompt", req.Query),
+			attribute.Int("rag.top_k", req.TopK),
+		))
+	defer span.End()
+
 	// top_k 可由前端覆盖，默认使用 Retriever 内置值
 	retriever := h.retriever
 	if req.TopK > 0 {
 		retriever = retriever.WithTopK(req.TopK)
 	}
 
-	docs, err := retriever.Retrieve(c.Request.Context(), req.Query)
+	docs, err := retriever.Retrieve(ctx, req.Query)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		logger.Log.Errorw("RAG 检索失败", "query", req.Query, "error", err)
 		c.JSON(http.StatusInternalServerError, dto.RAGSearchResponse{Code: -1, Msg: "检索失败: " + err.Error()})
 		return
 	}
+
+	span.SetAttributes(attribute.Int("rag.result_count", len(docs)))
 
 	items := make([]dto.RAGSearchItem, 0, len(docs))
 	for _, d := range docs {
@@ -79,9 +95,18 @@ func (h *RAGHandler) IngestFile(c *gin.Context) {
 		return
 	}
 
+	ctx, span := otel.Tracer("videomax").Start(c.Request.Context(), "rag.ingest.file",
+		trace.WithAttributes(
+			attribute.String("gen_ai.operation.name", "chain"),
+			attribute.String("rag.filename", fileHeader.Filename),
+		))
+	defer span.End()
+
 	// 将上传文件写入临时目录（保留原始扩展名，供 LoadFile 判断格式）
 	tmpFile, err := os.CreateTemp("", "rag-upload-*"+filepath.Ext(fileHeader.Filename))
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		c.JSON(http.StatusInternalServerError, dto.RAGIngestResponse{Code: -1, Msg: "临时文件创建失败"})
 		return
 	}
@@ -90,6 +115,8 @@ func (h *RAGHandler) IngestFile(c *gin.Context) {
 	defer os.Remove(tmpPath) // 入库完成后清理临时文件
 
 	if err := c.SaveUploadedFile(fileHeader, tmpPath); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		c.JSON(http.StatusInternalServerError, dto.RAGIngestResponse{Code: -1, Msg: "文件保存失败: " + err.Error()})
 		return
 	}
@@ -99,7 +126,7 @@ func (h *RAGHandler) IngestFile(c *gin.Context) {
 		source = fileHeader.Filename
 	}
 
-	docs, err := rag.LoadFile(c.Request.Context(), tmpPath, rag.LoaderOptions{
+	docs, err := rag.LoadFile(ctx, tmpPath, rag.LoaderOptions{
 		ChunkSize:    h.chunkSize,
 		ChunkOverlap: h.chunkOverlap,
 		ExtraMetadata: map[string]string{
@@ -108,16 +135,21 @@ func (h *RAGHandler) IngestFile(c *gin.Context) {
 		},
 	})
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		c.JSON(http.StatusBadRequest, dto.RAGIngestResponse{Code: -1, Msg: "文件解析失败: " + err.Error()})
 		return
 	}
 
-	if err := h.retriever.IngestDocuments(c.Request.Context(), docs); err != nil {
+	if err := h.retriever.IngestDocuments(ctx, docs); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		logger.Log.Errorw("RAG 文件入库失败", "file", fileHeader.Filename, "error", err)
 		c.JSON(http.StatusInternalServerError, dto.RAGIngestResponse{Code: -1, Msg: "入库失败: " + err.Error()})
 		return
 	}
 
+	span.SetAttributes(attribute.Int("rag.ingested_count", len(docs)))
 	logger.Log.Infow("RAG 文件入库成功", "file", fileHeader.Filename, "chunks", len(docs))
 	c.JSON(http.StatusOK, dto.RAGIngestResponse{Code: 0, Msg: "入库成功", Ingested: len(docs)})
 }
@@ -130,6 +162,13 @@ func (h *RAGHandler) IngestText(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, dto.RAGIngestResponse{Code: -1, Msg: "请求体格式错误: " + err.Error()})
 		return
 	}
+
+	ctx, span := otel.Tracer("videomax").Start(c.Request.Context(), "rag.ingest.text",
+		trace.WithAttributes(
+			attribute.String("gen_ai.operation.name", "chain"),
+			attribute.Int("rag.doc_count", len(req.Documents)),
+		))
+	defer span.End()
 
 	docs := make([]rag.Document, 0, len(req.Documents))
 	for _, item := range req.Documents {
@@ -144,12 +183,15 @@ func (h *RAGHandler) IngestText(c *gin.Context) {
 		})
 	}
 
-	if err := h.retriever.IngestDocuments(c.Request.Context(), docs); err != nil {
+	if err := h.retriever.IngestDocuments(ctx, docs); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		logger.Log.Errorw("RAG 文本入库失败", "error", err)
 		c.JSON(http.StatusInternalServerError, dto.RAGIngestResponse{Code: -1, Msg: "入库失败: " + err.Error()})
 		return
 	}
 
+	span.SetAttributes(attribute.Int("rag.ingested_count", len(docs)))
 	logger.Log.Infow("RAG 文本入库成功", "doc_count", len(docs))
 	c.JSON(http.StatusOK, dto.RAGIngestResponse{Code: 0, Msg: "入库成功", Ingested: len(docs)})
 }

@@ -7,7 +7,13 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Reranker 二次排序接口
@@ -65,6 +71,15 @@ func (r *HTTPReranker) Rerank(ctx context.Context, query string, docs []Document
 		return docs, nil
 	}
 
+	ctx, span := otel.Tracer("videomax").Start(ctx, "rag.reranker.rerank",
+		trace.WithAttributes(
+			attribute.String("gen_ai.operation.name", "reranker"),
+			attribute.String("gen_ai.request.model", r.model),
+			attribute.String("gen_ai.prompt", query),
+			attribute.Int("rag.candidate_count", len(docs)),
+		))
+	defer span.End()
+
 	contents := make([]string, len(docs))
 	for i, doc := range docs {
 		contents[i] = doc.Content
@@ -92,16 +107,23 @@ func (r *HTTPReranker) Rerank(ctx context.Context, query string, docs []Document
 
 	resp, err := r.httpClient.Do(req)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("rerank API 请求失败: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("rerank API 返回非 200 状态码: %d", resp.StatusCode)
+		err := fmt.Errorf("rerank API 返回非 200 状态码: %d", resp.StatusCode)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 
 	var result rerankResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("解析 rerank 响应失败: %w", err)
 	}
 
@@ -111,10 +133,17 @@ func (r *HTTPReranker) Rerank(ctx context.Context, query string, docs []Document
 	})
 
 	reranked := make([]Document, 0, len(result.Results))
-	for _, r := range result.Results {
-		if r.Index >= 0 && r.Index < len(docs) {
-			reranked = append(reranked, docs[r.Index])
+	scoreLines := make([]string, 0, len(result.Results))
+	for _, item := range result.Results {
+		if item.Index >= 0 && item.Index < len(docs) {
+			reranked = append(reranked, docs[item.Index])
+			scoreLines = append(scoreLines, fmt.Sprintf("[%d] score=%.4f id=%s content:\n%s\n",
+				item.Index, item.RelevanceScore, docs[item.Index].ID, docs[item.Index].Content))
 		}
 	}
+	span.SetAttributes(
+		attribute.Int("rag.result_count", len(reranked)),
+		attribute.String("gen_ai.completion", strings.Join(scoreLines, "\n")),
+	)
 	return reranked, nil
 }

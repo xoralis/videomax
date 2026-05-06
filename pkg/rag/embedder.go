@@ -5,6 +5,10 @@ import (
 	"fmt"
 
 	"github.com/sashabaranov/go-openai"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Embedder 文本向量化接口
@@ -77,16 +81,30 @@ func (e *OpenAIEmbedder) Dim() int { return e.dim }
 
 // Embed 将文本转换为向量
 func (e *OpenAIEmbedder) Embed(ctx context.Context, text string) ([]float32, error) {
+	ctx, span := otel.Tracer("videomax").Start(ctx, "rag.embedder.embed",
+		trace.WithAttributes(
+			attribute.String("gen_ai.operation.name", "embedding"),
+			attribute.String("gen_ai.request.model", e.model),
+			attribute.String("gen_ai.prompt", text),
+		))
+	defer span.End()
+
 	resp, err := e.client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
 		Input: []string{text},
 		Model: openai.EmbeddingModel(e.model),
 	})
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("embedding 请求失败: %w", err)
 	}
 	if len(resp.Data) == 0 {
-		return nil, fmt.Errorf("embedding 响应为空")
+		err := fmt.Errorf("embedding 响应为空")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
+	span.SetAttributes(attribute.Int("rag.embedding_dim", len(resp.Data[0].Embedding)))
 	return resp.Data[0].Embedding, nil
 }
 
@@ -96,11 +114,22 @@ func (e *OpenAIEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]fl
 	if len(texts) == 0 {
 		return nil, nil
 	}
+
+	ctx, span := otel.Tracer("videomax").Start(ctx, "rag.embedder.embed_batch",
+		trace.WithAttributes(
+			attribute.String("gen_ai.operation.name", "embedding"),
+			attribute.String("gen_ai.request.model", e.model),
+			attribute.Int("rag.batch_size", len(texts)),
+		))
+	defer span.End()
+
 	resp, err := e.client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
 		Input: texts,
 		Model: openai.EmbeddingModel(e.model),
 	})
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("批量 embedding 请求失败: %w", err)
 	}
 	// 响应中 Data 的顺序不保证与输入一致，通过 Index 字段对齐
@@ -112,7 +141,10 @@ func (e *OpenAIEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]fl
 	}
 	for i, v := range vecs {
 		if v == nil {
-			return nil, fmt.Errorf("批量 embedding 响应缺少第 %d 条结果", i)
+			err := fmt.Errorf("批量 embedding 响应缺少第 %d 条结果", i)
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			return nil, err
 		}
 	}
 	return vecs, nil

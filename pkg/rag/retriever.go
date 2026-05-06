@@ -4,6 +4,11 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Retriever 将 Embedder 和 VectorStore 组合为「检索器」
@@ -54,8 +59,20 @@ func (r *Retriever) WithReranker(reranker Reranker, rerankTopN int) *Retriever {
 // Retrieve 对 query 文本进行语义检索，返回最相关的文档列表
 // 流程：文本向量化 → 向量检索 → （可选）Reranker 重排序
 func (r *Retriever) Retrieve(ctx context.Context, query string) ([]Document, error) {
+	ctx, span := otel.Tracer("videomax").Start(ctx, "rag.retriever.retrieve",
+		trace.WithAttributes(
+			attribute.String("gen_ai.operation.name", "retriever"),
+			attribute.String("gen_ai.prompt", query),
+			attribute.Int("rag.top_k", r.topK),
+			attribute.String("rag.filter", r.filter),
+			attribute.Bool("rag.reranker_enabled", r.reranker != nil),
+		))
+	defer span.End()
+
 	vec, err := r.embedder.Embed(ctx, query)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("query 向量化失败: %w", err)
 	}
 
@@ -66,6 +83,8 @@ func (r *Retriever) Retrieve(ctx context.Context, query string) ([]Document, err
 
 	docs, err := r.store.Search(ctx, vec, query, fetchK, r.filter)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("向量检索失败: %w", err)
 	}
 
@@ -81,6 +100,11 @@ func (r *Retriever) Retrieve(ctx context.Context, query string) ([]Document, err
 		}
 	}
 
+	// 最终返回给调用方的结果写入 Output（SetAttributes gen_ai.completion）
+	span.SetAttributes(
+		attribute.Int("rag.result_count", len(docs)),
+		attribute.String("gen_ai.completion", docsToCompletion(docs)),
+	)
 	return docs, nil
 }
 
@@ -91,12 +115,22 @@ func (r *Retriever) IngestDocuments(ctx context.Context, docs []Document) error 
 	if len(docs) == 0 {
 		return nil
 	}
+
+	ctx, span := otel.Tracer("videomax").Start(ctx, "rag.retriever.ingest",
+		trace.WithAttributes(
+			attribute.String("gen_ai.operation.name", "retriever"),
+			attribute.Int("rag.doc_count", len(docs)),
+		))
+	defer span.End()
+
 	texts := make([]string, len(docs))
 	for i, doc := range docs {
 		texts[i] = doc.Content
 	}
 	vecs, err := r.embedder.EmbedBatch(ctx, texts)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("批量向量化失败: %w", err)
 	}
 	for i := range docs {
@@ -106,7 +140,12 @@ func (r *Retriever) IngestDocuments(ctx context.Context, docs []Document) error 
 			docs[i].Provider = provider
 		}
 	}
-	return r.store.Upsert(ctx, docs)
+	if err := r.store.Upsert(ctx, docs); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	}
+	return nil
 }
 
 // FormatResults 将检索结果格式化为大模型可直接阅读的字符串（Observation）
@@ -121,3 +160,11 @@ func FormatResults(docs []Document) string {
 	return strings.TrimSpace(sb.String())
 }
 
+// docsToCompletion 将文档列表序列化为 LangSmith completion 字符串
+func docsToCompletion(docs []Document) string {
+	var sb strings.Builder
+	for i, d := range docs {
+		sb.WriteString(fmt.Sprintf("[%d] id=%s provider=%s\n%s\n", i+1, d.ID, d.Provider, d.Content))
+	}
+	return strings.TrimSpace(sb.String())
+}

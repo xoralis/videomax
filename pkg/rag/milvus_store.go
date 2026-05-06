@@ -5,6 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
 	"video-max/pkg/logger"
 
 	"github.com/milvus-io/milvus/client/v2/column"
@@ -137,6 +142,15 @@ func (s *MilvusStore) Upsert(ctx context.Context, docs []Document) error {
 		return nil
 	}
 
+	ctx, span := otel.Tracer("videomax").Start(ctx, "rag.milvus.upsert",
+		trace.WithAttributes(
+			attribute.String("gen_ai.operation.name", "retriever"),
+			attribute.String("db.system", "milvus"),
+			attribute.String("db.collection", s.collection),
+			attribute.Int("rag.doc_count", len(docs)),
+		))
+	defer span.End()
+
 	ids := make([]string, 0, len(docs))
 	contents := make([]string, 0, len(docs))
 	metadatas := make([]string, 0, len(docs))
@@ -169,14 +183,20 @@ func (s *MilvusStore) Upsert(ctx context.Context, docs []Document) error {
 		column.NewColumnFloatVector(fieldVector, s.dim, vectors),
 		column.NewColumnVarChar(fieldProvider, providers),
 	)); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("写入文档失败: %w", err)
 	}
 
 	flushTask, err := s.cli.Flush(ctx, milvusclient.NewFlushOption(s.collection))
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("flush 失败: %w", err)
 	}
 	if err := flushTask.Await(ctx); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("等待 flush 完成失败: %w", err)
 	}
 
@@ -187,6 +207,17 @@ func (s *MilvusStore) Upsert(ctx context.Context, docs []Document) error {
 // query: 稠密查询向量；queryText: 原始查询文本（BM25 稀疏检索使用）
 // filter: Milvus 标量过滤表达式，如 `provider == "bytedance"`；空字符串表示不过滤
 func (s *MilvusStore) Search(ctx context.Context, query []float32, queryText string, topK int, filter string) ([]Document, error) {
+	ctx, span := otel.Tracer("videomax").Start(ctx, "rag.milvus.search",
+		trace.WithAttributes(
+			attribute.String("gen_ai.operation.name", "retriever"),
+			attribute.String("db.system", "milvus"),
+			attribute.String("db.collection", s.collection),
+			attribute.Int("rag.top_k", topK),
+			attribute.String("rag.filter", filter),
+			attribute.String("gen_ai.prompt", queryText),
+		))
+	defer span.End()
+
 	denseReq := milvusclient.NewAnnRequest(fieldVector, topK, entity.FloatVector(query)).
 		WithAnnParam(index.NewHNSWAnnParam(64))
 	sparseReq := milvusclient.NewAnnRequest(fieldSparse, topK, entity.Text(queryText)).
@@ -202,10 +233,17 @@ func (s *MilvusStore) Search(ctx context.Context, query []float32, queryText str
 			WithReranker(milvusclient.NewRRFReranker()).
 			WithOutputFields(fieldID, fieldContent, fieldMetadata, fieldProvider))
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("Hybrid 检索失败: %w", err)
 	}
 
-	return extractDocs(results), nil
+	docs := extractDocs(results)
+	span.SetAttributes(
+		attribute.Int("rag.result_count", len(docs)),
+		attribute.String("gen_ai.completion", docsToCompletion(docs)),
+	)
+	return docs, nil
 }
 
 // Close 关闭 Milvus 客户端连接
