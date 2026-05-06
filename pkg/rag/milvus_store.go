@@ -188,17 +188,18 @@ func (s *MilvusStore) Upsert(ctx context.Context, docs []Document) error {
 		return fmt.Errorf("写入文档失败: %w", err)
 	}
 
-	flushTask, err := s.cli.Flush(ctx, milvusclient.NewFlushOption(s.collection))
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		return fmt.Errorf("flush 失败: %w", err)
-	}
-	if err := flushTask.Await(ctx); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		return fmt.Errorf("等待 flush 完成失败: %w", err)
-	}
+	// Milvus 会自动定期 flush，无需手动调用（手动 flush 受 gRPC RateLimiter 限制 rate=0.1）
+	// flushTask, err := s.cli.Flush(ctx, milvusclient.NewFlushOption(s.collection))
+	// if err != nil {
+	// 	span.RecordError(err)
+	// 	span.SetStatus(codes.Error, err.Error())
+	// 	return fmt.Errorf("flush 失败: %w", err)
+	// }
+	// if err := flushTask.Await(ctx); err != nil {
+	// 	span.RecordError(err)
+	// 	span.SetStatus(codes.Error, err.Error())
+	// 	return fmt.Errorf("等待 flush 完成失败: %w", err)
+	// }
 
 	return nil
 }
