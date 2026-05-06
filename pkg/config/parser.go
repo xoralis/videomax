@@ -112,6 +112,13 @@ type RAGConfig struct {
 	TopK         int    `yaml:"top_k"`          // 每次检索返回的最大文档数，默认 3
 	ChunkSize    int    `yaml:"chunk_size"`     // 文档切分块大小（Rune 数），默认 512
 	ChunkOverlap int    `yaml:"chunk_overlap"`  // 相邻块重叠字符数，默认 50
+	// Reranker 二次排序配置（可选）
+	// 启用后：先召回 RerankTopN 候选，调用外部 /v1/rerank API 重排，再截取 TopK 返回
+	RerankEnabled bool   `yaml:"rerank_enabled"`  // 是否启用 Reranker（false 时跳过重排）
+	RerankAPIKey  string `yaml:"rerank_api_key"`  // Reranker API Key（如 SiliconFlow key）
+	RerankBaseURL string `yaml:"rerank_base_url"` // Reranker API Base URL，如 "https://api.siliconflow.cn"
+	RerankModel   string `yaml:"rerank_model"`    // Reranker 模型，如 "BAAI/bge-reranker-v2-m3"
+	RerankTopN    int    `yaml:"rerank_top_n"`    // Rerank 前召回候选数，默认 10
 }
 
 // Load 从指定 YAML 文件路径加载并解析配置

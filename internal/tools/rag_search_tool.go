@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -13,8 +14,7 @@ import (
 )
 
 // RAGSearchTool 基于向量检索的最佳实践查询工具
-// 替代 PresetSearchTool 的硬编码规则，改为从 Milvus 知识库中语义检索
-// 完整实现 AITool 接口，可直接注册给 VisualAgent 的 ReAct 循环
+// 支持 Provider Filter：通过 provider 字段按供应商过滤知识文档（可选）
 type RAGSearchTool struct {
 	retriever *rag.Retriever
 }
@@ -31,7 +31,8 @@ func (t *RAGSearchTool) Retriever() *rag.Retriever {
 
 // ragSearchParams 工具的入参结构，与 ParametersSchema 一一对应
 type ragSearchParams struct {
-	Query string `json:"query"` // 需要查询的自然语言问题
+	Query    string `json:"query"`              // 需要查询的自然语言问题
+	Provider string `json:"provider,omitempty"` // 可选：视频供应商，如 "bytedance"、"kling"
 }
 
 func (t *RAGSearchTool) Name() string {
@@ -39,7 +40,7 @@ func (t *RAGSearchTool) Name() string {
 }
 
 func (t *RAGSearchTool) Description() string {
-	return "从知识库中检索视频生成的最佳实践规则，包括各供应商推荐的分辨率、时长、风格关键词、运镜指令和提示词写作技巧。当你需要了解某个平台的参数规范或提示词写法时，调用此工具。"
+	return "从知识库中检索视频生成的最佳实践规则，包括各供应商推荐的分辨率、时长、风格关键词、运镜指令和提示词写作技巧。当你需要了解某个平台的参数规范或提示词写法时，调用此工具。可通过 provider 字段（如 'bytedance'、'kling'）过滤特定供应商的知识，提升检索精度。"
 }
 
 func (t *RAGSearchTool) ParametersSchema() string {
@@ -49,6 +50,10 @@ func (t *RAGSearchTool) ParametersSchema() string {
 			"query": {
 				"type": "string",
 				"description": "自然语言查询，例如：'bytedance 推荐的分辨率和时长' 或 'kling 运镜关键词'"
+			},
+			"provider": {
+				"type": "string",
+				"description": "可选。视频供应商标识，如 'bytedance'、'kling'、'hunyuan'。指定后只返回该供应商的知识，留空则检索全库。"
 			}
 		},
 		"required": ["query"]
@@ -73,7 +78,15 @@ func (t *RAGSearchTool) Execute(ctx context.Context, argsJSON string) (string, e
 		return "", fmt.Errorf("query 不能为空")
 	}
 
-	docs, err := t.retriever.Retrieve(ctx, params.Query)
+	// Provider Filter
+	retriever := t.retriever
+	if params.Provider != "" {
+		filter := fmt.Sprintf(`provider == "%s"`, params.Provider)
+		retriever = retriever.WithFilter(filter)
+		span.SetAttributes(attribute.String("rag.filter", filter))
+	}
+
+	docs, err := retriever.Retrieve(ctx, params.Query)
 	if err != nil {
 		return "", fmt.Errorf("知识库检索失败: %w", err)
 	}
@@ -81,4 +94,14 @@ func (t *RAGSearchTool) Execute(ctx context.Context, argsJSON string) (string, e
 	result := rag.FormatResults(docs)
 	span.SetAttributes(attribute.String("gen_ai.completion", result))
 	return result, nil
+}
+
+// ── 公共辅助：Milvus Provider 过滤表达式 ─────────────────────────────────────────
+
+// ProviderFilter 生成 Milvus 标量过滤表达式（供外部使用）
+func ProviderFilter(provider string) string {
+	if provider == "" {
+		return ""
+	}
+	return fmt.Sprintf(`provider == "%s"`, strings.ReplaceAll(provider, `"`, `\"`))
 }

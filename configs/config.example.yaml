@@ -73,3 +73,11 @@ rag:
   embed_model: "text-embedding-3-small"  # 支持: text-embedding-3-large / bge-m3 / doubao-embedding
   embed_dim: 0                     # 0 = 从 KnownModelDimensions 自动推断，手动覆盖可填具体数值
   top_k: 3
+  chunk_size: 512
+  chunk_overlap: 50
+  # Reranker 二次排序（可选）：先召回 rerank_top_n 候选，调用 /v1/rerank 重排后取 top_k
+  rerank_enabled: false
+  rerank_api_key: ""               # SiliconFlow / Jina / Cohere API Key
+  rerank_base_url: "https://api.siliconflow.cn"  # Reranker API Base URL
+  rerank_model: "BAAI/bge-reranker-v2-m3"        # 推荐: BAAI/bge-reranker-v2-m3 (中英双语)
+  rerank_top_n: 10                 # 初次召回数量，重排后截取 top_k 返回

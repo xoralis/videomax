@@ -105,7 +105,7 @@ services:
       retries: 3
 
   milvus-standalone:
-    image: milvusdb/milvus:v2.4.15
+    image: milvusdb/milvus:v2.5.26
     container_name: videomax-milvus
     restart: always
     command: ["milvus", "run", "standalone"]

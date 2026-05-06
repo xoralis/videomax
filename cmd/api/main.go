@@ -107,8 +107,26 @@ func main() {
 			aiTools = []tools.AITool{&tools.PresetSearchTool{}, tools.NewDuckDuckGoTool()}
 		} else {
 			retriever := rag.NewRetriever(embedder, milvusStore, topK)
-			aiTools = []tools.AITool{tools.NewRAGSearchTool(retriever), tools.NewDuckDuckGoTool()}
-			logger.Log.Infow("RAG 模块已启用", "milvus_addr", cfg.RAG.MilvusAddr, "collection", cfg.RAG.Collection, "top_k", topK)
+
+			// 可选：启用 Reranker 二次排序
+			if cfg.RAG.RerankEnabled && cfg.RAG.RerankBaseURL != "" && cfg.RAG.RerankModel != "" {
+				rerankTopN := cfg.RAG.RerankTopN
+				if rerankTopN <= 0 {
+					rerankTopN = 10
+				}
+				reranker := rag.NewHTTPReranker(cfg.RAG.RerankBaseURL, cfg.RAG.RerankAPIKey, cfg.RAG.RerankModel)
+				retriever = retriever.WithReranker(reranker, rerankTopN)
+				logger.Log.Infow("Reranker 已启用", "model", cfg.RAG.RerankModel, "top_n", rerankTopN)
+			}
+
+			ragSearchTool := tools.NewRAGSearchTool(retriever)
+			aiTools = []tools.AITool{ragSearchTool, tools.NewDuckDuckGoTool()}
+			logger.Log.Infow("RAG 模块已启用",
+				"milvus_addr", cfg.RAG.MilvusAddr,
+				"collection", cfg.RAG.Collection,
+				"top_k", topK,
+				"rerank", cfg.RAG.RerankEnabled,
+			)
 		}
 	} else {
 		aiTools = []tools.AITool{&tools.PresetSearchTool{}, tools.NewDuckDuckGoTool()}
@@ -234,3 +252,5 @@ func main() {
 	cancel() // 取消 Kafka 消费者的上下文
 	logger.Log.Info("videoMax 已安全关闭。再见！")
 }
+
+

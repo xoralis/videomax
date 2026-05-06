@@ -11,6 +11,8 @@ import (
 // 将自然语言文本转换为固定维度的浮点向量，用于向量相似度检索
 type Embedder interface {
 	Embed(ctx context.Context, text string) ([]float32, error)
+	// EmbedBatch 批量向量化，一次 HTTP 请求处理多条文本，显著降低入库延迟
+	EmbedBatch(ctx context.Context, texts []string) ([][]float32, error)
 	// Dim 返回向量维度，创建 Milvus Collection 时需要
 	Dim() int
 }
@@ -86,4 +88,32 @@ func (e *OpenAIEmbedder) Embed(ctx context.Context, text string) ([]float32, err
 		return nil, fmt.Errorf("embedding 响应为空")
 	}
 	return resp.Data[0].Embedding, nil
+}
+
+// EmbedBatch 批量向量化，将多条文本打包为单次 API 请求，减少网络往返次数
+// OpenAI /v1/embeddings 协议原生支持多条 Input，豆包等兼容厂商同样支持
+func (e *OpenAIEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
+	if len(texts) == 0 {
+		return nil, nil
+	}
+	resp, err := e.client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
+		Input: texts,
+		Model: openai.EmbeddingModel(e.model),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("批量 embedding 请求失败: %w", err)
+	}
+	// 响应中 Data 的顺序不保证与输入一致，通过 Index 字段对齐
+	vecs := make([][]float32, len(texts))
+	for _, item := range resp.Data {
+		if item.Index >= 0 && item.Index < len(texts) {
+			vecs[item.Index] = item.Embedding
+		}
+	}
+	for i, v := range vecs {
+		if v == nil {
+			return nil, fmt.Errorf("批量 embedding 响应缺少第 %d 条结果", i)
+		}
+	}
+	return vecs, nil
 }

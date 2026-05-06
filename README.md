@@ -5,7 +5,7 @@
   <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white" />
   <img src="https://img.shields.io/badge/Kafka-7.4-231F20?logo=apachekafka&logoColor=white" />
   <img src="https://img.shields.io/badge/MySQL-8.0-4479A1?logo=mysql&logoColor=white" />
-  <img src="https://img.shields.io/badge/Milvus-2.x-00B4D8?logo=milvus&logoColor=white" />
+  <img src="https://img.shields.io/badge/Milvus-2.5-00B4D8?logo=milvus&logoColor=white" />
   <img src="https://img.shields.io/badge/LangSmith-OTel-blueviolet" />
   <img src="https://img.shields.io/badge/License-MIT-green" />
 </p>
@@ -146,7 +146,8 @@ Thought: "现在我可以按规格构建 Prompt 了"
 | ORM | GORM | 1.31 |
 | 数据库 | MySQL | 8.0 |
 | 消息队列 | Apache Kafka | 7.4 |
-| 向量数据库 | Milvus | 2.x |
+| 向量数据库 | Milvus | 2.5.26 |
+| Milvus Go SDK | milvus/client/v2 | 2.5.6 |
 | 日志 | Uber Zap + Lumberjack | 1.27 |
 | LLM SDK | go-openai | 1.41 |
 | Kafka SDK | IBM Sarama | 1.47 |
@@ -170,7 +171,7 @@ Thought: "现在我可以按规格构建 Prompt 了"
 | 容器编排 | Docker Compose |
 | 数据库 | MySQL 8.0 |
 | 消息队列 | Confluent Kafka 7.4 + Zookeeper |
-| 向量存储 | Milvus Standalone |
+| 向量存储 | Milvus Standalone 2.5.26 |
 
 ---
 
@@ -236,8 +237,9 @@ videoMax/
 │   ├── oss/uploader.go                # 阿里云 OSS 流式上传
 │   ├── rag/
 │   │   ├── embedder.go                # 文本向量化（支持多种 Embedding 模型）
-│   │   ├── milvus_store.go            # Milvus 向量存储
-│   │   └── retriever.go               # 相似度检索（Top-K）
+│   │   ├── milvus_store.go            # Milvus 向量存储（混合检索：Dense + BM25）
+│   │   ├── retriever.go               # 混合检索（Top-K，Weighted RRF Rerank）
+│   │   └── vector_store.go            # VectorStore 接口定义
 │   └── logger/zap_logger.go           # 结构化日志
 ├── frontend/                          # React SPA
 │   └── src/
@@ -269,7 +271,7 @@ videoMax/
 - Go 1.26+
 - Node.js 18+ & pnpm
 - Docker & Docker Compose
-- Milvus 2.x（可通过 Docker 启动，RAG 功能依赖；`rag.enabled: false` 时可跳过）
+- Milvus 2.5（可通过 Docker 启动，RAG 功能依赖；`rag.enabled: false` 时可跳过）
 
 ### 方式一：本地开发（仅启动基础设施）
 
@@ -279,7 +281,7 @@ videoMax/
 docker compose up -d mysql zookeeper kafka
 ```
 
-如需使用 RAG 知识库功能，还需启动 Milvus（约需额外 30 秒就绪）：
+如需使用 RAG 知识库功能，还需启动 Milvus 2.5（约需额外 30 秒就绪）：
 
 ```bash
 docker compose up -d milvus-standalone milvus-etcd milvus-minio
@@ -580,18 +582,24 @@ pending → phase_story → phase_char → phase_board → phase_visual → phas
 
 VideoMax 内置 RAG（检索增强生成）模块，将历史优质 Prompt 自动向量化入库，Visual Agent 在构建新 Prompt 时可检索语义相近的历史案例作为参考。
 
+自 Milvus 2.5 起，系统采用**服务端 BM25**（通过 Milvus Function API 内置），无需客户端维护稀疏向量，支持 Dense 与 BM25 全文检索的混合搜索（Hybrid Search）。
+
 ### 工作流程
 
 ```
 视频生成完成
      ↓
-FinalPrompts 自动 Embed（文本向量化）
+FinalPrompts 自动 Embed（文本 → Dense 向量）
      ↓
 写入 Milvus 向量库（collection: videomax_knowledge）
+Milvus 服务端自动生成 BM25 稀疏向量（无需客户端介入）
      ↓
 下次 Visual Agent 构建 Prompt 时
      ↓
-search_best_practices 工具 → 检索 Top-K 相似历史 Prompt
+search_best_practices 工具
+  → Dense 语义检索（ANN）+ BM25 全文检索（Sparse）
+  → Weighted Ranker 融合重排（Alpha 参数可调）
+  → Top-K 相似历史 Prompt
      ↓
 融合参考 → 生成更高质量的新 Prompt
 ```
@@ -602,9 +610,11 @@ search_best_practices 工具 → 检索 Top-K 相似历史 Prompt
 |--------|------|--------|
 | `rag.enabled` | 是否启用 RAG（false 时降级为 PresetSearchTool） | `true` |
 | `rag.milvus_addr` | Milvus 地址 | `localhost:19530` |
-| `rag.embed_model` | 向量化模型 | `text-embedding-3-small` |
+| `rag.embed_model` | Dense 向量化模型 | `text-embedding-3-small` |
 | `rag.embed_dim` | 向量维度（0 = 自动推断） | `0` |
 | `rag.top_k` | 检索返回数量 | `3` |
+
+> **注意：** BM25 稀疏向量由 Milvus 2.5 服务端自动生成，无需额外配置 Sparse 模型。
 
 ### 手动导入知识
 
@@ -650,7 +660,7 @@ langsmith:
 | **Chain of Thought** | Story Agent 3 步强制推理链 |
 | **ReAct** | Visual Agent 推理 + 工具调用循环 |
 | **Reflection** | Critic Agent 审计 + 反馈驱动重试 |
-| **RAG (检索增强生成)** | Visual Agent 从 Milvus 检索历史优质 Prompt 辅助构建新提示词 |
+| **RAG (检索增强生成)** | Visual Agent 从 Milvus 混合检索（Dense + BM25）历史优质 Prompt 辅助构建新提示词 |
 | **Factory Pattern** | LLM 客户端 / 视频供应商的创建 |
 | **Strategy Pattern** | 可插拔的 LLM 与视频供应商实现 |
 | **Repository Pattern** | 数据访问层接口与实现分离 |
