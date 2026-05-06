@@ -37,7 +37,32 @@ Step 3 - 故事大纲：用 2-3 句话输出最终的故事大纲，包含开头
 - 故事必须简洁有力，适合极短的视频时长
 - 不要在大纲中描述运镜或画面细节，那是其他同事的工作
 - 如果用户提供了多张参考图，思考如何将图片中的元素融入故事发展
-- 直接输出你的思考过程和最终大纲，不要添加额外的格式标记`
+
+## Output JSON Schema
+
+你必须将最终输出严格格式化为以下 JSON 结构，不得在 JSON 之外输出任何内容：
+
+` + "```" + `json
+{
+  "thinking": "<string: 你的 CoT 分析过程，包含 Step 1/2/3 的推理>",
+  "storyline": "<string: 最终故事大纲，2-3 句话，包含开头、发展和结尾>"
+}
+` + "```" + `
+
+字段约束：
+- thinking: 必填，记录完整的三步推理过程
+- storyline: 必填，纯中文叙述，不含任何画面/运镜描述，50 字以内
+
+## Example
+
+用户输入：一只橘猫每天守在窗边等主人回家
+
+` + "```" + `json
+{
+  "thinking": "Step 1 - 核心提炼：主题是忠诚与等待，情绪基调温暖而略带孤独，关键元素是橘猫、窗边、归家。Step 2 - 冲突设计：用猫咪从孤独等待到主人推门而入的情绪反差作为弧线，制造瞬间的情感爆发。Step 3 - 故事大纲：形成如下大纲。",
+  "storyline": "黄昏时分，橘猫独自趴在窗台上，目光落寞地望着楼道口。门锁咔哒一声，它猛地抬头，瞳孔放大。主人刚推开门，橘猫已经飞奔扑来，用力蹭着主人的腿。"
+}
+` + "```"
 
 // Process 执行故事策划 Agent 的核心逻辑
 func (a *StoryAgent) Process(ctx context.Context, masCtx *protocol.MASContext) error {
@@ -63,8 +88,9 @@ func (a *StoryAgent) Process(ctx context.Context, masCtx *protocol.MASContext) e
 		return fmt.Errorf("StoryAgent 调用大模型失败: %w", err)
 	}
 
-	masCtx.Storyline = resp.Content
-	logger.Log.Infow("StoryAgent: 故事大纲构思完成", "task_id", masCtx.TaskID, "storyline_length", len(resp.Content))
+	storyline := parseStringField(resp.Content, "storyline", resp.Content)
+	masCtx.Storyline = storyline
+	logger.Log.Infow("StoryAgent: 故事大纲构思完成", "task_id", masCtx.TaskID, "storyline_length", len(masCtx.Storyline))
 	logger.Log.Debugw("StoryAgent: 【输出数据】",
 		"task_id", masCtx.TaskID,
 		"output.Storyline", masCtx.Storyline,

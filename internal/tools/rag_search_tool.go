@@ -36,7 +36,7 @@ type ragSearchParams struct {
 }
 
 func (t *RAGSearchTool) Name() string {
-	return "search_best_practices"
+	return "rag_search"
 }
 
 func (t *RAGSearchTool) Description() string {

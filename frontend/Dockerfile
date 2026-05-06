@@ -6,8 +6,8 @@ WORKDIR /app
 # 启用 corepack 以使用 pnpm
 RUN corepack enable
 
-COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+COPY package.json ./
+RUN pnpm install
 
 COPY . .
 RUN pnpm build

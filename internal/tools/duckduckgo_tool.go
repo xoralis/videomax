@@ -43,7 +43,7 @@ type ddgResult struct {
 	Snippet string
 }
 
-func (t *DuckDuckGoTool) Name() string { return "web_search" }
+func (t *DuckDuckGoTool) Name() string { return "duckduckgo_search" }
 
 func (t *DuckDuckGoTool) Description() string {
 	return "使用 DuckDuckGo 搜索互联网上的实时信息，适合查询最新资讯、技术文档、产品规格等知识库中不存在的内容。返回搜索结果标题、链接和摘要。"
@@ -73,7 +73,7 @@ func (t *DuckDuckGoTool) Execute(ctx context.Context, argsJSON string) (string, 
 	_, span := otel.Tracer("videomax").Start(ctx, "web_search",
 		trace.WithAttributes(
 			attribute.String("gen_ai.operation.name", "tool"),
-			attribute.String("gen_ai.tool.name", "web_search"),
+			attribute.String("gen_ai.tool.name", "duckduckgo_search"),
 			attribute.String("gen_ai.prompt", argsJSON),
 		))
 	defer span.End()

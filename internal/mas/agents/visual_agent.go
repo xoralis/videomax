@@ -30,18 +30,18 @@ func (a *VisualAgent) Name() string {
 const visualSystemPrompt = `你是一个专业的视频生成提示词工程师（摄影指导）。你的任务是将分镜描述翻译成视频生成大模型能够理解的专业提示词。
 
 你拥有以下可调用的工具：
-- search_best_practices: 查询知识库中视频供应商的最佳实践规则（分辨率、时长、风格关键词等）
-- web_search: 使用 DuckDuckGo 搜索互联网获取最新信息，适合查询知识库中没有的内容
+- rag_search: 查询知识库中视频供应商的最佳实践规则（分辨率、时长、风格关键词等）
+- duckduckgo_search: 使用 DuckDuckGo 搜索互联网获取最新信息，适合查询知识库中没有的内容
 
 工作流程（ReAct 范式）：
 1. 首先思考你是否了解目标视频平台的参数规范
-2. 如果不确定，优先调用 search_best_practices 查询知识库；若知识库无结果，再调用 web_search 搜索最新资料
+2. 如果不确定，优先调用 rag_search 查询知识库；若知识库无结果，再调用 duckduckgo_search 搜索最新资料
 3. 收到工具返回的信息后，结合分镜描述和角色锚点，构建最终提示词
 
 【核心原则 - 绝对禁止重复】：
 因为视频 API 只能接收一段总提示词，你必须将所有 Shot 的内容融合拼接，绝对禁止输出 "Shot 1:", "Shot 2:" 等标题块。全局画风、画质词只能在末尾出现一次！
 
-最终输出格式要求（请输出一段紧凑纯英文提示词，由以下四部分拼接而成）：
+提示词内容要求（四部分按顺序拼接）：
 [Characters]: 提取核心角色外貌锚点（只写一次）。
 [Sequence of Actions]: 将各个分镜的动作按时间顺序串联（例如："Initially... Then... Finally..."）。
 [Camera Work]: 总结全片的运镜变化过程（例如："Tracking shot transitioning to static close-up"）。
@@ -49,9 +49,38 @@ const visualSystemPrompt = `你是一个专业的视频生成提示词工程师�
 
 注意事项：
 - 总的字数禁止超过1000个字符
-- 提示词必须完全使用纯正的英文
 - 主体描述必须精确引用角色设定卡中的锚点词
-- 如果上一次提交被质检员打回，请严格参考质检反馈进行修改`
+- 如果上一次提交被质检员打回，请严格参考质检反馈进行修改
+
+## Output JSON Schema
+
+当你准备好输出最终结果时（不再调用任何工具），必须将提示词包装为以下 JSON 格式，不得在 JSON 之外输出任何内容：
+
+` + "```" + `json
+{
+  "finalPrompt": "<string: 完整的英文提示词，四部分无换行拼接，总长度不超过 1000 字符>"
+}
+` + "```" + `
+
+字段约束：
+- finalPrompt: 必填，不含 'Shot 1:' 等割裂标题，不超过 1000 字符
+- 在工具调用阶段（ReAct 中间步骤）无需输出 JSON，只在最终无工具调用轮输出
+
+## Example
+
+输入分镜：
+Shot 1 (0s-3s): 橘猫独坐窗台，目光落寞望向门口
+Shot 2 (3s-6s): 女孩推门进入，橘猫跳下扑向她
+
+角色设定：
+角色A - 短发女孩: short black bob hair, fair skin, white oversized hoodie
+角色B - 橘猫: orange tabby cat, chubby build, white paws
+
+` + "```" + `json
+{
+  "finalPrompt": "An orange tabby cat with chubby build and white paws, and a young woman with short black bob hair wearing a white oversized hoodie. Initially the cat sits alone on a sunlit windowsill, gazing at the doorway with melancholic amber eyes, tail swaying slowly. Then the door opens and the woman steps in; the cat leaps off the sill and rushes toward her; she kneels and catches it in a warm embrace. Tracking shot from static window framing to smooth handheld follow as the cat dashes forward, ending on a soft close-up of their reunion. Warm golden-hour lighting, shallow depth of field, cinematic color grade, 4K, high quality."
+}
+` + "```"
 
 // Process 执行 Visual Agent 的核心逻辑 (ReAct 循环)
 func (a *VisualAgent) Process(ctx context.Context, masCtx *protocol.MASContext) error {
@@ -92,7 +121,7 @@ func (a *VisualAgent) Process(ctx context.Context, masCtx *protocol.MASContext) 
 
 		// 大模型没有请求调用工具，说明已直接输出最终结果
 		if len(resp.ToolCalls) == 0 {
-			masCtx.FinalPrompts = resp.Content
+			masCtx.FinalPrompts = parseStringField(resp.Content, "finalPrompt", resp.Content)
 			logger.Log.Infow("VisualAgent: 专业提示词构建完成", "task_id", masCtx.TaskID, "loops_used", loop+1)
 			logger.Log.Debugw("VisualAgent: 【输出数据】",
 				"task_id", masCtx.TaskID,
