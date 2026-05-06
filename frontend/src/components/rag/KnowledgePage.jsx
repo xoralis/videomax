@@ -106,45 +106,86 @@ function SearchTab() {
 // ── 上传文档 Tab ─────────────────────────────────────────────
 const ACCEPT_EXTS = '.txt,.md,.markdown,.pdf';
 
+// status: 'pending' | 'uploading' | 'done' | 'error'
 function UploadTab() {
   const fileInputRef = useRef(null);
   const [dragging, setDragging] = useState(false);
-  const [selectedFile, setSelectedFile] = useState(null);
+  const [files, setFiles] = useState([]);         // File[]
+  const [statuses, setStatuses] = useState({});   // { [fileKey]: {status, ingested?, error?} }
   const [source, setSource] = useState('');
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState(null);
-  const [error, setError] = useState('');
+  const [summary, setSummary] = useState(null);   // { done, failed } after all uploads
 
-  const pickFile = (file) => {
-    if (!file) return;
-    setSelectedFile(file);
-    setResult(null);
-    setError('');
+  const fileKey = (f) => `${f.name}-${f.size}`;
+
+  const addFiles = (fileList) => {
+    const incoming = Array.from(fileList);
+    setFiles((prev) => {
+      const existingKeys = new Set(prev.map(fileKey));
+      const novel = incoming.filter((f) => !existingKeys.has(fileKey(f)));
+      return [...prev, ...novel];
+    });
+    setStatuses((prev) => {
+      const next = { ...prev };
+      incoming.forEach((f) => {
+        const k = fileKey(f);
+        if (!next[k]) next[k] = { status: 'pending' };
+      });
+      return next;
+    });
+    setSummary(null);
+  };
+
+  const removeFile = (f) => {
+    setFiles((prev) => prev.filter((x) => fileKey(x) !== fileKey(f)));
+    setStatuses((prev) => {
+      const next = { ...prev };
+      delete next[fileKey(f)];
+      return next;
+    });
+  };
+
+  const setFileStatus = (f, patch) => {
+    setStatuses((prev) => ({
+      ...prev,
+      [fileKey(f)]: { ...prev[fileKey(f)], ...patch },
+    }));
   };
 
   const handleDrop = (e) => {
     e.preventDefault();
     setDragging(false);
-    const file = e.dataTransfer.files[0];
-    pickFile(file);
+    addFiles(e.dataTransfer.files);
   };
 
   const handleUpload = async () => {
-    if (!selectedFile) return;
+    const pending = files.filter((f) => statuses[fileKey(f)]?.status !== 'done');
+    if (pending.length === 0) return;
     setLoading(true);
-    setError('');
-    setResult(null);
-    try {
-      const data = await ingestFile(selectedFile, source.trim());
-      setResult(data);
-      setSelectedFile(null);
-      setSource('');
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
+    setSummary(null);
+    let doneCount = 0;
+    let failCount = 0;
+    for (let i = 0; i < pending.length; i++) {
+      const f = pending[i];
+      setFileStatus(f, { status: 'uploading' });
+      try {
+        const data = await ingestFile(f, source.trim());
+        setFileStatus(f, { status: 'done', ingested: data.ingested });
+        doneCount++;
+      } catch (err) {
+        setFileStatus(f, { status: 'error', error: err.message });
+        failCount++;
+      }
     }
+    setLoading(false);
+    setSummary({ done: doneCount, failed: failCount });
   };
+
+  const pendingCount = files.filter((f) => statuses[fileKey(f)]?.status !== 'done').length;
+  const uploadingIndex = files.findIndex((f) => statuses[fileKey(f)]?.status === 'uploading');
+  const uploadingLabel = loading
+    ? `入库中 (${uploadingIndex + 1}/${pendingCount})…`
+    : `开始入库${pendingCount > 0 ? ` (${pendingCount} 个文件)` : ''}`;
 
   return (
     <div className="space-y-5">
@@ -154,7 +195,7 @@ function UploadTab() {
         onDragLeave={() => setDragging(false)}
         onDrop={handleDrop}
         onClick={() => fileInputRef.current?.click()}
-        className={`relative flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed cursor-pointer transition-colors min-h-[160px] px-6 py-10
+        className={`relative flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed cursor-pointer transition-colors min-h-[140px] px-6 py-8
           ${dragging
             ? 'border-cyan-500 bg-cyan-500/5'
             : 'border-slate-700 bg-slate-800/40 hover:border-slate-600'
@@ -164,31 +205,71 @@ function UploadTab() {
           ref={fileInputRef}
           type="file"
           accept={ACCEPT_EXTS}
+          multiple
           className="hidden"
-          onChange={(e) => pickFile(e.target.files[0])}
+          onChange={(e) => addFiles(e.target.files)}
         />
         <svg className="w-10 h-10 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
             d="M12 16v-8m0 0-3 3m3-3 3 3M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1" />
         </svg>
-        {selectedFile ? (
-          <div className="text-center">
-            <p className="text-white text-sm font-medium">{selectedFile.name}</p>
-            <p className="text-slate-500 text-xs mt-1">
-              {(selectedFile.size / 1024).toFixed(1)} KB
-            </p>
-          </div>
-        ) : (
-          <div className="text-center">
-            <p className="text-slate-400 text-sm">拖拽文件到此处，或点击选择</p>
-            <p className="text-slate-600 text-xs mt-1">支持 .txt .md .markdown .pdf</p>
-          </div>
-        )}
+        <div className="text-center pointer-events-none">
+          <p className="text-slate-400 text-sm">拖拽一个或多个文件到此处，或点击选择</p>
+          <p className="text-slate-600 text-xs mt-1">支持 .txt .md .markdown .pdf</p>
+        </div>
       </div>
+
+      {/* 已选文件列表 */}
+      {files.length > 0 && (
+        <ul className="space-y-2">
+          {files.map((f) => {
+            const k = fileKey(f);
+            const st = statuses[k] || { status: 'pending' };
+            return (
+              <li key={k} className="flex items-center gap-3 rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2">
+                {/* 文件名 + 大小 */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-white text-sm truncate">{f.name}</p>
+                  <p className="text-slate-500 text-xs">{(f.size / 1024).toFixed(1)} KB</p>
+                </div>
+
+                {/* 状态 badge */}
+                {st.status === 'pending' && (
+                  <span className="text-xs text-slate-400 bg-slate-700 rounded px-2 py-0.5 shrink-0">等待</span>
+                )}
+                {st.status === 'uploading' && (
+                  <span className="text-xs text-yellow-400 bg-yellow-400/10 rounded px-2 py-0.5 shrink-0 animate-pulse">上传中</span>
+                )}
+                {st.status === 'done' && (
+                  <span className="text-xs text-emerald-400 bg-emerald-400/10 rounded px-2 py-0.5 shrink-0">
+                    ✓ {st.ingested} 片段
+                  </span>
+                )}
+                {st.status === 'error' && (
+                  <span className="text-xs text-red-400 bg-red-400/10 rounded px-2 py-0.5 shrink-0 max-w-[160px] truncate" title={st.error}>
+                    ✕ {st.error}
+                  </span>
+                )}
+
+                {/* 删除按钮（仅 pending 时） */}
+                {st.status === 'pending' && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); removeFile(f); }}
+                    className="text-slate-600 hover:text-slate-400 transition-colors shrink-0"
+                    title="移除"
+                  >
+                    ✕
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
 
       {/* 来源标签 */}
       <div>
-        <label className="block text-slate-400 text-xs mb-1.5">来源标签（可选）</label>
+        <label className="block text-slate-400 text-xs mb-1.5">来源标签（可选，应用于全部文件）</label>
         <input
           type="text"
           value={source}
@@ -201,23 +282,24 @@ function UploadTab() {
       {/* 上传按钮 */}
       <button
         onClick={handleUpload}
-        disabled={!selectedFile || loading}
+        disabled={files.length === 0 || loading || pendingCount === 0}
         className="w-full rounded-lg bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white text-sm font-medium py-2.5 transition-colors"
       >
-        {loading ? '入库中，请稍候…' : '开始入库'}
+        {uploadingLabel}
       </button>
 
-      {/* 错误 */}
-      {error && (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-red-400 text-sm">
-          {error}
-        </div>
-      )}
-
-      {/* 成功 */}
-      {result && (
-        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-emerald-400 text-sm">
-          ✓ 入库成功，共写入 <strong>{result.ingested}</strong> 个片段
+      {/* 汇总结果 */}
+      {summary && (
+        <div className={`rounded-lg border px-4 py-3 text-sm ${
+          summary.failed === 0
+            ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+            : summary.done === 0
+              ? 'border-red-500/30 bg-red-500/10 text-red-400'
+              : 'border-yellow-500/30 bg-yellow-500/10 text-yellow-400'
+        }`}>
+          {summary.failed === 0
+            ? `✓ 全部入库成功，共 ${summary.done} 个文件`
+            : `完成：${summary.done} 个成功，${summary.failed} 个失败`}
         </div>
       )}
     </div>
